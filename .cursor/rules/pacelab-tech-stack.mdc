@@ -1,0 +1,41 @@
+---
+description: Pacelab tech stack and conventions — use these exact packages and tools
+alwaysApply: true
+---
+
+# Pacelab Tech Stack
+
+Use these exact packages and tools for everything you build. Never suggest alternatives unless a package is incompatible with Expo bare workflow.
+
+## Frontend
+- **React Native** with **Expo** (bare workflow)
+- **TypeScript** strict mode
+- **Zustand** for global state management
+- **React Navigation** for all navigation (tab + stack + bottom sheet modals)
+- **Mapbox GL** for route maps with pace/HR heatmap overlay
+- **Victory Native XL** for all charts and graphs
+- **expo-location** for GPS run tracking
+- **expo-document-picker** for GPX file import
+- **fast-xml-parser** for GPX file parsing
+- **react-native-background-fetch** for background sync
+- **react-native-health** for Apple HealthKit
+
+## Backend
+- **Supabase** for auth, database, and file storage
+- **Supabase Edge Functions** for server-side processing
+
+## AI — Two model architecture
+- **Gemini 1.5 Pro**: deep analysis — Strava history import, runner profile, training plans, weekly analysis
+- **Groq Llama 3.3 70B**: real-time — daily briefings, post-run summaries, coach chat, quick adjustments
+
+## External APIs
+- **Strava API v3** — OAuth, history import, webhook sync
+- **Garmin Health API** — wellness data
+- **Apple HealthKit** — Apple Watch data
+- **Mapbox** — maps
+- **OpenWeather API** — weather context
+
+## App identity
+- **App name:** Pacelab
+- **Bundle ID:** com.benny.pacelab
+- **Design:** Light theme, Apple HIG style (as already established)
