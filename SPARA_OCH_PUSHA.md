@@ -1,24 +1,28 @@
 # Så sparar du och pushar till GitHub
 
-## Spara lokalt (commit)
+## 1. Sätt Git-identitet (gör en gång per dator)
 
-Kör i terminalen från projektmappen `RunApp`:
+Git behöver veta vem som gör commit. Kör i terminalen (byt till ditt namn och din e-post):
+
+```bash
+git config --global user.email "din-epost@example.com"
+git config --global user.name "Ditt Namn"
+```
+
+## 2. Spara lokalt (commit)
+
+**Allt är redan staged** (`git add .` är kört). Du behöver bara committa:
 
 ```bash
 cd /Users/benny/Desktop/RunApp
-
-# Lägg till alla ändringar (inkl. nya filer)
-git add .
-
-# Gör en commit med ett meddelande
-git commit -m "Apple HealthKit integration: react-native-health, Supabase tables, Profile + Today UI, edge functions"
+git commit -m "Pacelab: Apple HealthKit, Supabase tables, Profile + Today UI, edge functions"
 ```
 
 Då är allt sparat i din **lokala** Git-historik.
 
 ---
 
-## Skicka till GitHub (push)
+## 3. Skicka till GitHub (push)
 
 **Ja, det är bra att ha koden på GitHub** – backup, historik och enkelt att dela eller byta dator.
 
@@ -58,9 +62,10 @@ git push
 
 ---
 
-## Kort checklista imorgon
+## Kort checklista
 
-1. [ ] Gör det du ska i Xcode (HealthKit) och Supabase (migration) – se `docs/APPLE_HEALTH_MANUAL_STEPS.md`.
-2. [ ] Spara till Git: `git add .` → `git commit -m "..."` → `git push` (om du redan kopplat till GitHub).
-
-Då är både jobbet och koden sparade.
+1. [ ] **Git-identitet** (en gång): `git config --global user.email "..."` och `user.name "..."`
+2. [ ] **Commit**: `git commit -m "Pacelab: Apple HealthKit, Supabase, Profile + Today UI"`
+3. [ ] **GitHub**: Skapa repo → `git remote add origin ...` → `git push -u origin main`
+4. [ ] **Xcode**: HealthKit-capability (se `docs/APPLE_HEALTH_MANUAL_STEPS.md`)
+5. [ ] **Supabase**: Kör migrationen `20250221210000_apple_health.sql` i SQL Editor
