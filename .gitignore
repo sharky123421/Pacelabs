@@ -33,5 +33,9 @@ yarn-error.*
 .env
 .env*.local
 
+# generated from .env (contains values from .env)
+config.env.js
+src/config.env.js
+
 # typescript
 *.tsbuildinfo

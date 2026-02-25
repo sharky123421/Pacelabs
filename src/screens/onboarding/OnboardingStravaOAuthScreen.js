@@ -11,6 +11,7 @@ import {
 import { colors, typography, spacing, theme } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { setOnboardingStep, ONBOARDING_STEPS } from '../../lib/onboarding';
+import { openStravaOAuth } from '../../services/stravaAuth';
 
 const STRAVA_ORANGE = colors.stravaOrange;
 const BULLET = '✓';
@@ -18,19 +19,26 @@ const BULLET = '✓';
 export function OnboardingStravaOAuthScreen({ navigation }) {
   const { user } = useAuth();
   const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState(null);
 
   const handleConnect = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setError('You must be signed in to connect Strava.');
+      return;
+    }
     setLoading(true);
+    setError(null);
     try {
+      await openStravaOAuth(user.id);
       await setOnboardingStep(user.id, ONBOARDING_STEPS.STEP_IMPORT_PROGRESS, {
         payload: { strava_connected: true },
       });
       navigation.replace('OnboardingImportProgress');
     } catch (e) {
+      setError(e?.message || 'Could not open Strava. Try again.');
+    } finally {
       setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -55,6 +63,9 @@ export function OnboardingStravaOAuthScreen({ navigation }) {
           <Text style={styles.bulletRow}><Text style={styles.check}>{BULLET}</Text> Personal records and segments</Text>
         </View>
 
+        {error ? (
+          <Text style={styles.errorText}>{error}</Text>
+        ) : null}
         <TouchableOpacity
           style={[styles.button, styles.stravaButton]}
           onPress={handleConnect}
@@ -134,5 +145,11 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: '#FFFFFF',
     fontWeight: '600',
+  },
+  errorText: {
+    ...typography.caption,
+    color: colors.destructive,
+    marginBottom: 16,
+    textAlign: 'center',
   },
 });

@@ -8,10 +8,10 @@ export function PrimaryButton({ title, onPress, disabled, loading, style, textSt
       style={[styles.button, disabled && styles.disabled, style]}
       onPress={onPress}
       disabled={disabled || loading}
-      activeOpacity={0.8}
+      activeOpacity={0.75}
     >
       {loading ? (
-        <ActivityIndicator color="#FFFFFF" />
+        <ActivityIndicator color={colors.background} />
       ) : (
         <Text style={[styles.text, textStyle]}>{title}</Text>
       )}
@@ -26,13 +26,14 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.touchablePadding,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 50,
+    minHeight: 56,
   },
   disabled: {
-    opacity: 0.6,
+    opacity: 0.3,
   },
   text: {
-    ...typography.body,
-    color: '#FFFFFF',
+    ...typography.headline,
+    color: colors.background,
+    letterSpacing: -0.2,
   },
 });

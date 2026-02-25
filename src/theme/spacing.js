@@ -1,10 +1,10 @@
 /**
- * RunApp design system — spacing & layout
+ * Pacelab design system — spacing & layout
  */
 export const spacing = {
   screenPaddingHorizontal: 20,
   betweenCards: 16,
   betweenRelated: 8,
-  /** Button / input vertical spacing */
-  touchablePadding: 14,
+  betweenSections: 28,
+  touchablePadding: 16,
 };

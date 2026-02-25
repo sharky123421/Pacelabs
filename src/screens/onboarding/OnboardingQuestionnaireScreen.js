@@ -12,7 +12,8 @@ import { colors, typography, spacing, theme } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOnboardingProgress, updateOnboardingPayload, setOnboardingStep, ONBOARDING_STEPS } from '../../lib/onboarding';
 import { PrimaryButton } from '../../components';
-import { QUESTIONS, TOTAL_QUESTIONS } from './onboardingQuestions';
+import { QUESTIONS, TOTAL_QUESTIONS, BEGINNER_TRIGGERS } from './onboardingQuestions';
+import { BEGINNER_QUESTIONS, TOTAL_BEGINNER_QUESTIONS } from './beginnerQuestions';
 
 const QUESTIONNAIRE_PAYLOAD_KEY = 'questionnaire_answers';
 
@@ -41,11 +42,6 @@ function SliderQuestion({ min, max, unit, value, onValueChange }) {
   );
 }
 
-function getQuestionByStep(step) {
-  const i = Math.min(step - 1, QUESTIONS.length - 1);
-  return { index: i, q: QUESTIONS[i] };
-}
-
 export function OnboardingQuestionnaireScreen({ route, navigation }) {
   const stepParam = route?.params?.step ?? 1;
   const { user } = useAuth();
@@ -53,13 +49,17 @@ export function OnboardingQuestionnaireScreen({ route, navigation }) {
   const [answers, setAnswers] = useState({});
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [isBeginnerFlow, setIsBeginnerFlow] = useState(false);
 
-  const { index, q } = getQuestionByStep(step);
+  const questions = isBeginnerFlow ? BEGINNER_QUESTIONS : QUESTIONS;
+  const totalQ = isBeginnerFlow ? TOTAL_BEGINNER_QUESTIONS : TOTAL_QUESTIONS;
+
+  const index = Math.min(step - 1, questions.length - 1);
+  const q = questions[index];
   const progressCount = step;
-  const totalVisible = TOTAL_QUESTIONS;
   const isSkippable = q?.skippable;
   const canContinue = (q?.type === 'cards' || q?.type === 'grid') ? !!selected : true;
-  const isLast = step >= TOTAL_QUESTIONS;
+  const isLast = step >= totalQ;
 
   useEffect(() => {
     if (!user?.id) return;
@@ -67,7 +67,8 @@ export function OnboardingQuestionnaireScreen({ route, navigation }) {
       const payload = p?.payload ?? {};
       const loaded = payload[QUESTIONNAIRE_PAYLOAD_KEY] ?? {};
       setAnswers(loaded);
-      const qForStep = QUESTIONS[stepParam - 1];
+      if (loaded._beginner_flow) setIsBeginnerFlow(true);
+      const qForStep = questions[stepParam - 1];
       if (qForStep) setSelected(loaded[qForStep.id] ?? null);
     }).catch(() => {});
   }, [user?.id]);
@@ -79,21 +80,43 @@ export function OnboardingQuestionnaireScreen({ route, navigation }) {
     try {
       await updateOnboardingPayload(user.id, {
         [QUESTIONNAIRE_PAYLOAD_KEY]: newAnswers,
-        questionnaire_step: Math.min(nextStep, TOTAL_QUESTIONS),
+        questionnaire_step: Math.min(nextStep, totalQ),
       });
       setAnswers(newAnswers);
-      if (nextStep > TOTAL_QUESTIONS) {
-        await setOnboardingStep(user.id, ONBOARDING_STEPS.STEP_GPX_IMPORT);
-        navigation.replace('OnboardingGPXImport');
+      if (nextStep > totalQ) {
+        if (isBeginnerFlow) {
+          await setOnboardingStep(user.id, ONBOARDING_STEPS.STEP_PROFILE_REVEAL);
+          navigation.replace('OnboardingProfileReveal', { beginner: true });
+        } else {
+          await setOnboardingStep(user.id, ONBOARDING_STEPS.STEP_GPX_IMPORT);
+          navigation.replace('OnboardingGPXImport');
+        }
       } else {
         setStep(nextStep);
-        setSelected(QUESTIONS[nextStep - 1] ? (newAnswers[QUESTIONS[nextStep - 1].id] ?? null) : null);
+        const nextQ = questions[nextStep - 1];
+        setSelected(nextQ ? (newAnswers[nextQ.id] ?? null) : null);
       }
     } catch (e) {}
     setLoading(false);
   };
 
   const handleContinue = () => {
+    if (!isBeginnerFlow && step === 1 && (q?.type === 'cards' || q?.type === 'grid')) {
+      const answer = selected;
+      if (answer && BEGINNER_TRIGGERS.includes(answer)) {
+        const newAnswers = { ...answers, [q.id]: answer, _beginner_flow: true };
+        setAnswers(newAnswers);
+        setIsBeginnerFlow(true);
+        setStep(1);
+        setSelected(null);
+        updateOnboardingPayload(user.id, {
+          [QUESTIONNAIRE_PAYLOAD_KEY]: newAnswers,
+          questionnaire_step: 1,
+        }).catch(() => {});
+        return;
+      }
+    }
+
     if (q?.type === 'cards' || q?.type === 'grid') {
       saveAndContinue(step + 1, { [q.id]: selected });
     } else if (q?.type === 'slider') {
@@ -109,10 +132,16 @@ export function OnboardingQuestionnaireScreen({ route, navigation }) {
 
   const handleBack = () => {
     if (step <= 1) {
-      navigation.goBack();
+      if (isBeginnerFlow) {
+        setIsBeginnerFlow(false);
+        setStep(1);
+        setSelected(answers['running_experience'] ?? null);
+      } else {
+        navigation.goBack();
+      }
     } else {
       setStep(step - 1);
-      setSelected(answers[QUESTIONS[step - 2]?.id] ?? null);
+      setSelected(answers[questions[step - 2]?.id] ?? null);
     }
   };
 
@@ -169,10 +198,76 @@ export function OnboardingQuestionnaireScreen({ route, navigation }) {
         />
       );
     }
-    if (q.type === 'pace' || q.type === 'race_times' || q.type === 'date' || q.type === 'goal_time') {
+    if (q.type === 'pace') {
       return (
-        <View style={styles.placeholderBlock}>
-          <Text style={styles.placeholderText}>Answer saved when you continue or skip.</Text>
+        <View style={styles.paceInputWrap}>
+          <TextInput
+            style={styles.paceInput}
+            placeholder="e.g. 6:00"
+            placeholderTextColor={colors.secondaryText}
+            value={answers[q.id] || ''}
+            onChangeText={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))}
+            keyboardType="numbers-and-punctuation"
+          />
+          <Text style={styles.paceUnit}>min/km</Text>
+        </View>
+      );
+    }
+    if (q.type === 'race_times') {
+      const rows = q.rows || [];
+      const raceData = answers[q.id] || {};
+      return (
+        <View>
+          {rows.map((race) => (
+            <View key={race} style={styles.raceTimeRow}>
+              <Text style={styles.raceTimeLabel}>{race}</Text>
+              <TextInput
+                style={styles.raceTimeInput}
+                placeholder="e.g. 25:00"
+                placeholderTextColor={colors.secondaryText}
+                value={raceData[race] || ''}
+                onChangeText={(v) => setAnswers((a) => ({ ...a, [q.id]: { ...(a[q.id] || {}), [race]: v } }))}
+                keyboardType="numbers-and-punctuation"
+              />
+            </View>
+          ))}
+        </View>
+      );
+    }
+    if (q.type === 'date') {
+      return (
+        <View>
+          <TextInput
+            style={styles.dateInput}
+            placeholder="e.g. June 2026"
+            placeholderTextColor={colors.secondaryText}
+            value={answers[q.id] || ''}
+            onChangeText={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))}
+          />
+          {q.noDateOption && (
+            <TouchableOpacity style={styles.noDateBtn} onPress={() => setAnswers((a) => ({ ...a, [q.id]: 'No specific date' }))}>
+              <Text style={styles.noDateText}>No specific date yet</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      );
+    }
+    if (q.type === 'goal_time') {
+      return (
+        <View>
+          <TextInput
+            style={styles.dateInput}
+            placeholder="e.g. 1:45:00"
+            placeholderTextColor={colors.secondaryText}
+            value={answers[q.id] || ''}
+            onChangeText={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))}
+            keyboardType="numbers-and-punctuation"
+          />
+          {q.justFinish && (
+            <TouchableOpacity style={styles.noDateBtn} onPress={() => setAnswers((a) => ({ ...a, [q.id]: 'Just finish' }))}>
+              <Text style={styles.noDateText}>Just finish</Text>
+            </TouchableOpacity>
+          )}
         </View>
       );
     }
@@ -182,13 +277,13 @@ export function OnboardingQuestionnaireScreen({ route, navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.progressBar}>
-        <View style={[styles.progressFill, { width: `${(progressCount / totalVisible) * 100}%` }]} />
+        <View style={[styles.progressFill, { width: `${(progressCount / totalQ) * 100}%` }]} />
       </View>
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
-          <Text style={styles.chevron}>‹</Text>
+          <Text style={styles.chevron}>{'\u2039'}</Text>
         </TouchableOpacity>
-        <Text style={styles.stepLabel}>{progressCount}/{totalVisible}</Text>
+        <Text style={styles.stepLabel}>{progressCount}/{totalQ}</Text>
         {isSkippable ? (
           <TouchableOpacity onPress={handleSkip} style={styles.skipBtn}>
             <Text style={styles.skipText}>Skip</Text>
@@ -217,6 +312,8 @@ export function OnboardingQuestionnaireScreen({ route, navigation }) {
     </SafeAreaView>
   );
 }
+
+const CARD_PADDING = 20;
 
 const styles = StyleSheet.create({
   container: {
@@ -340,12 +437,63 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     maxWidth: 80,
   },
-  placeholderBlock: {
+  paceInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 16,
+    gap: 12,
   },
-  placeholderText: {
+  paceInput: {
+    flex: 1,
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    ...typography.title,
+    color: colors.primaryText,
+    textAlign: 'center',
+  },
+  paceUnit: {
     ...typography.secondary,
     color: colors.secondaryText,
+  },
+  raceTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 12,
+  },
+  raceTimeLabel: {
+    width: 110,
+    ...typography.body,
+    color: colors.primaryText,
+  },
+  raceTimeInput: {
+    flex: 1,
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    ...typography.body,
+    color: colors.primaryText,
+    textAlign: 'center',
+  },
+  dateInput: {
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    ...typography.body,
+    color: colors.primaryText,
+    marginBottom: 12,
+  },
+  noDateBtn: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  noDateText: {
+    ...typography.secondary,
+    color: colors.link,
   },
   footer: {
     paddingHorizontal: spacing.screenPaddingHorizontal,
@@ -353,5 +501,3 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
 });
-
-const CARD_PADDING = 20;

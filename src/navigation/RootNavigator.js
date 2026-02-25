@@ -1,4 +1,5 @@
 import React from 'react';
+import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import {
@@ -14,8 +15,11 @@ import {
   OnboardingProfileRevealScreen,
   OnboardingGoalSettingScreen,
   OnboardingPlanGenerationScreen,
+  BeginnerPostRunScreen,
 } from '../screens';
 import { MainTabs } from './MainTabs';
+import { ErrorBoundary } from '../components';
+import { useAuth } from '../contexts/AuthContext';
 import { colors, typography } from '../theme';
 
 const Stack = createNativeStackNavigator();
@@ -29,13 +33,34 @@ const screenOptions = {
   animation: 'default',
 };
 
-export function RootNavigator() {
+function LoadingScreen() {
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName="Welcome"
-        screenOptions={screenOptions}
-      >
+    <View style={loadingStyles.container}>
+      <ActivityIndicator size="large" color={colors.accent} />
+      <Text style={loadingStyles.text}>Loading...</Text>
+    </View>
+  );
+}
+
+export function RootNavigator() {
+  const { session, loading } = useAuth();
+  const initialRoute = session ? 'Main' : 'Welcome';
+
+  if (loading) {
+    return (
+      <ErrorBoundary>
+        <LoadingScreen />
+      </ErrorBoundary>
+    );
+  }
+
+  return (
+    <ErrorBoundary>
+      <NavigationContainer>
+        <Stack.Navigator
+          initialRouteName={initialRoute}
+          screenOptions={screenOptions}
+        >
         <Stack.Screen
           name="Welcome"
           component={WelcomeScreen}
@@ -101,7 +126,27 @@ export function RootNavigator() {
           component={MainTabs}
           options={{ headerShown: false }}
         />
-      </Stack.Navigator>
-    </NavigationContainer>
+        <Stack.Screen
+          name="BeginnerPostRun"
+          component={BeginnerPostRunScreen}
+          options={{ headerShown: false, gestureEnabled: false }}
+        />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </ErrorBoundary>
   );
 }
+
+const loadingStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  text: {
+    ...typography.body,
+    color: colors.secondaryText,
+  },
+});

@@ -6,20 +6,15 @@
 
 ---
 
-## 1. HealthKit i Xcode (gör detta)
+## 1. HealthKit i Xcode (valfritt)
 
-1. Öppna **Xcode**.
-2. **File → Open** och välj:  
-   `RunApp/ios/Pacelab.xcworkspace`  
-   (inte `.xcodeproj`, använd workspace).
-3. I vänsterpanelen: välj **Pacelab** (projektet, blå ikon).
-4. Välj target **Pacelab** under TARGETS.
-5. Öppna fliken **Signing & Capabilities**.
-6. Klicka **+ Capability**.
-7. Sök efter **HealthKit** och dubbelklicka för att lägga till.
-8. Spara (Cmd+S). HealthKit är nu aktiverat för appen.
+**Behöver du inte om du:** bara testar i simulatorn eller inte har ett betalt Apple Developer-konto. Appen använder då mockdata och fungerar fint.
 
-*(Om du redan har HealthKit i listan behöver du inte göra något.)*
+**Gör bara detta om du** har ett betalt Apple Developer-konto och ska köra på riktig iPhone med riktig HealthKit-data:
+
+1. Öppna **Xcode** och **Pacelab.xcworkspace**.
+2. Välj target **Pacelab** → **Signing & Capabilities** → **+ Capability** → **HealthKit**.
+3. Spara.
 
 ---
 
@@ -60,6 +55,6 @@ För synk när appen är stängd: lägg till `react-native-background-fetch` och
 
 ## Snabbkontroll
 
-- [ ] Xcode: HealthKit-capability tillagd under Signing & Capabilities.
-- [ ] Supabase: migrationen `20250221210000_apple_health.sql` körd (Dashboard eller `supabase db push`).
-- [ ] Bygg och kör: `npx expo run:ios` (välj Pacelab-schemat om du frågas).
+- [ ] Supabase: migrationen `20250221210000_apple_health.sql` körd (Dashboard eller `supabase db push`) – behövs för att spara Apple Health-data i databasen.
+- [ ] Bygg och kör: `npx expo run:ios` (välj Pacelab-schemat). I simulator = mockdata, inget Apple-konto behövs.
+- [ ] (Valfritt) Xcode HealthKit-capability – bara om du har betalt Apple Developer-konto och ska använda riktig HealthKit på iPhone.

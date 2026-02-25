@@ -11,3 +11,20 @@ export {
   mockAppleHealthData,
   calculateAppleReadiness,
 } from './appleHealth';
+
+export {
+  runFullCoachingPipeline,
+  generateCoachingPlan,
+  analyzeCompletedRun,
+  getOptimizedSession,
+  runWeeklyAdaptation,
+  getAthleteState,
+  getLatestBottleneck,
+  getActivePhilosophy,
+  getBottleneckHistory,
+  getLatestAdaptation,
+  getAdaptationHistory,
+  getTodayDecision,
+  saveDailyChoice,
+  getCoachingSummary,
+} from './coachingEngine';

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, getKeepLoggedInPreference, setKeepLoggedInPreference } from '../lib/supabase';
+import { registerPushToken } from '../services/pushNotifications';
 
 const AuthContext = createContext(null);
 
@@ -7,6 +8,11 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [keepLoggedIn, setKeepLoggedInState] = useState(true);
+
+  useEffect(() => {
+    getKeepLoggedInPreference().then(setKeepLoggedInState);
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
@@ -25,10 +31,22 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!user?.id) return;
+    registerPushToken(user.id).catch(() => {});
+  }, [user?.id]);
+
+  const setKeepLoggedIn = async (value) => {
+    setKeepLoggedInState(value);
+    await setKeepLoggedInPreference(value);
+  };
+
   const value = {
     user,
     session,
     loading,
+    keepLoggedIn,
+    setKeepLoggedIn,
     signUp: supabase.auth.signUp.bind(supabase.auth),
     signInWithPassword: supabase.auth.signInWithPassword.bind(supabase.auth),
     signOut: supabase.auth.signOut.bind(supabase.auth),

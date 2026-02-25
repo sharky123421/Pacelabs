@@ -1,7 +1,7 @@
 // Apple Health wellness sync: app sends wellness payload after reading from HealthKit.
 // Invoke with: POST /functions/v1/apple-health-sync-wellness
 // Body: { wellness: { date, hrv_last_night, hrv_status, resting_heart_rate, sleep_score, ... } }
-import "jsr:@supabase/functions-js/edge_runtime.d.ts";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -32,21 +32,21 @@ Deno.serve(async (req) => {
       date: wellness.date,
       hrv_last_night: wellness.hrv_last_night ?? null,
       hrv_status: wellness.hrv_status ?? null,
-      resting_heart_rate: wellness.resting_heart_rate ?? null,
-      sleep_score: wellness.sleep_score ?? null,
-      sleep_duration_seconds: wellness.sleep_duration_seconds ?? null,
-      sleep_deep_seconds: wellness.sleep_deep_seconds ?? null,
-      sleep_rem_seconds: wellness.sleep_rem_seconds ?? null,
-      sleep_core_seconds: wellness.sleep_core_seconds ?? null,
-      sleep_awake_seconds: wellness.sleep_awake_seconds ?? null,
+      resting_heart_rate: wellness.resting_heart_rate != null ? Math.round(Number(wellness.resting_heart_rate)) : null,
+      sleep_score: wellness.sleep_score != null ? Math.round(Number(wellness.sleep_score)) : null,
+      sleep_duration_seconds: wellness.sleep_duration_seconds != null ? Math.round(Number(wellness.sleep_duration_seconds)) : null,
+      sleep_deep_seconds: wellness.sleep_deep_seconds != null ? Math.round(Number(wellness.sleep_deep_seconds)) : null,
+      sleep_rem_seconds: wellness.sleep_rem_seconds != null ? Math.round(Number(wellness.sleep_rem_seconds)) : null,
+      sleep_core_seconds: wellness.sleep_core_seconds != null ? Math.round(Number(wellness.sleep_core_seconds)) : null,
+      sleep_awake_seconds: wellness.sleep_awake_seconds != null ? Math.round(Number(wellness.sleep_awake_seconds)) : null,
       apple_vo2_max: wellness.apple_vo2_max ?? null,
-      move_calories: wellness.move_calories ?? null,
-      move_goal: wellness.move_goal ?? null,
-      exercise_minutes: wellness.exercise_minutes ?? null,
-      exercise_goal: wellness.exercise_goal ?? null,
-      stand_hours: wellness.stand_hours ?? null,
-      stand_goal: wellness.stand_goal ?? null,
-      readiness_score: wellness.readiness_score ?? null,
+      move_calories: wellness.move_calories != null ? Math.round(Number(wellness.move_calories)) : null,
+      move_goal: wellness.move_goal != null ? Math.round(Number(wellness.move_goal)) : null,
+      exercise_minutes: wellness.exercise_minutes != null ? Math.round(Number(wellness.exercise_minutes)) : null,
+      exercise_goal: wellness.exercise_goal != null ? Math.round(Number(wellness.exercise_goal)) : null,
+      stand_hours: wellness.stand_hours != null ? Math.round(Number(wellness.stand_hours)) : null,
+      stand_goal: wellness.stand_goal != null ? Math.round(Number(wellness.stand_goal)) : null,
+      readiness_score: wellness.readiness_score != null ? Math.round(Number(wellness.readiness_score)) : null,
       readiness_verdict: wellness.readiness_verdict ?? null,
       synced_at: new Date().toISOString(),
     };

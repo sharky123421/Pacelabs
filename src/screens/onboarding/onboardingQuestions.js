@@ -1,6 +1,12 @@
 /**
  * Onboarding questionnaire steps 1–11
  */
+
+export const BEGINNER_TRIGGERS = [
+  "I've never really run before",
+  'Less than 6 months',
+];
+
 export const QUESTIONS = [
   {
     id: 'running_experience',
@@ -8,6 +14,7 @@ export const QUESTIONS = [
     skippable: false,
     type: 'cards',
     options: [
+      "I've never really run before",
       'Less than 6 months',
       '6–12 months',
       '1–3 years',

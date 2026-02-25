@@ -1,18 +1,20 @@
 /**
  * Apple HealthKit integration for Pacelab (iOS only).
- * Uses react-native-health. On Android / simulator, use mock data.
+ * Uses react-native-health. In Expo Go / Android / simulator: HealthKit is unavailable, use mock or export flow.
  */
 
 import { Platform } from 'react-native';
+import * as Device from 'expo-device';
+import { isExpoGo } from '../lib/expoGo';
 import { supabase } from '../lib/supabase';
 
 const isIOS = Platform.OS === 'ios';
 
 /**
- * Get AppleHealthKit only on iOS (avoid require on Android to prevent crash).
+ * Get AppleHealthKit only on iOS in a development/standalone build (never in Expo Go – native module not available).
  */
 function getHealthKit() {
-  if (!isIOS) return null;
+  if (!isIOS || isExpoGo) return null;
   try {
     return require('react-native-health').default;
   } catch (e) {
@@ -38,6 +40,14 @@ export function isHealthKitAvailable() {
 export async function requestPermissions() {
   const AppleHealthKit = getHealthKit();
   if (!AppleHealthKit) {
+    if (!isIOS) {
+      return { error: 'Apple Health is only available on iPhone.' };
+    }
+    if (isExpoGo) {
+      return {
+        error: 'Apple Health requires a development build. In Expo Go: export from the Health app (Profile > Export All Health Data) and use "Import data" in the Profile tab.',
+      };
+    }
     return { error: 'HealthKit is not available on this device.' };
   }
 
@@ -63,7 +73,19 @@ export async function requestPermissions() {
   return new Promise((resolve) => {
     AppleHealthKit.initHealthKit(permissions, (error) => {
       if (error) {
-        resolve({ error: error || 'Permission denied' });
+        const msg = (error && String(error)) || 'Permission denied';
+        const isNotAvailable = /not available|unavailable|not supported/i.test(msg);
+        if (isNotAvailable && isIOS && !Device.isDevice) {
+          resolve({ granted: ['mock'], simulator: true });
+          return;
+        }
+        if (isNotAvailable) {
+          resolve({
+            error: 'Apple Health requires a development build. In Expo Go: export from the Health app (Profile > Export All Health Data) and use "Import data" in the Profile tab.',
+          });
+          return;
+        }
+        resolve({ error: msg });
         return;
       }
       resolve({ granted: ['HeartRateVariability', 'RestingHeartRate', 'HeartRate', 'SleepAnalysis', 'Vo2Max', 'StepCount', 'ActiveEnergyBurned', 'DistanceWalkingRunning', 'Weight', 'Workout'] });
@@ -278,7 +300,8 @@ export function calculateAppleReadiness(wellnessData, userBaselines = {}) {
 
 /**
  * Sync wellness data from HealthKit and upsert into apple_wellness.
- * Uses mock data when HealthKit is unavailable (simulator / Android).
+ * When HealthKit is unavailable (Expo Go / simulator), returns existing DB data
+ * from prior imports instead of overwriting with mock data.
  */
 export async function syncWellness(userId) {
   const today = dateString(new Date());
@@ -307,8 +330,13 @@ export async function syncWellness(userId) {
   };
   const useMock = !isIOS || !getHealthKit();
   if (useMock) {
-    const mock = mockAppleHealthData();
-    row = { ...row, ...mock.wellness, readiness_score: mock.readiness_score, readiness_verdict: mock.readiness_verdict };
+    const { data } = await supabase
+      .from('apple_wellness')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', today)
+      .maybeSingle();
+    return data || null;
   } else {
     try {
       const yesterdayStart = new Date();
@@ -381,8 +409,13 @@ export async function syncWellness(userId) {
       row.readiness_verdict = readiness_verdict;
     } catch (e) {
       console.warn('Apple Health wellness sync error:', e);
-      const mock = mockAppleHealthData();
-      row = { ...row, ...mock.wellness, readiness_score: mock.readiness_score, readiness_verdict: mock.readiness_verdict };
+      const { data } = await supabase
+        .from('apple_wellness')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', today)
+        .maybeSingle();
+      return data || null;
     }
   }
 
@@ -405,8 +438,7 @@ export async function syncWorkouts(userId, lastSyncedAt = null) {
 
   let workouts = [];
   if (useMock) {
-    const mock = mockAppleHealthData();
-    workouts = mock.workouts || [];
+    return { synced: 0, workouts: 0 };
   } else {
     try {
       const samples = await getWorkoutSamples({ type: 'Running', startDate, endDate });
@@ -420,7 +452,7 @@ export async function syncWorkouts(userId, lastSyncedAt = null) {
       }));
     } catch (e) {
       console.warn('Apple Health workouts sync error:', e);
-      workouts = mockAppleHealthData().workouts || [];
+      return { synced: 0, workouts: 0 };
     }
   }
 
@@ -593,5 +625,26 @@ export async function fullSync(userId) {
   const wellness = await syncWellness(userId);
   const workoutResult = await syncWorkouts(userId, conn.last_synced_at);
   await updateLastSyncedAt(userId);
+
+  if (workoutResult.synced > 0) {
+    triggerPostRunAnalysis(userId).catch(() => {});
+  }
+
   return { wellness, workouts: workoutResult };
+}
+
+async function triggerPostRunAnalysis(userId) {
+  try {
+    const { analyzeCompletedRun } = await import('./coachingEngine');
+    const { data: recentRuns } = await supabase
+      .from('runs')
+      .select('id')
+      .eq('user_id', userId)
+      .is('ai_summary', null)
+      .order('started_at', { ascending: false })
+      .limit(5);
+    for (const run of recentRuns || []) {
+      await analyzeCompletedRun(run.id).catch(() => {});
+    }
+  } catch (_) {}
 }

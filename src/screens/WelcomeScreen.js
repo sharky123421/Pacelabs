@@ -4,17 +4,15 @@ import { PrimaryButton, SecondaryButton } from '../components';
 import { colors, typography, spacing } from '../theme';
 import { APP_NAME } from '../constants';
 
-const TAGLINE = 'Run smarter. Stay consistent.';
-
 export function WelcomeScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.appName}>{APP_NAME}</Text>
-        <Text style={styles.tagline}>{TAGLINE}</Text>
-        <View style={styles.hero}>
-          <Text style={styles.heroIcon}>🏃</Text>
+        <View style={styles.brandMark}>
+          <Text style={styles.brandLetter}>P</Text>
         </View>
+        <Text style={styles.appName}>{APP_NAME}</Text>
+        <Text style={styles.tagline}>Run smarter. Stay consistent.</Text>
       </View>
       <View style={styles.actions}>
         <PrimaryButton
@@ -40,25 +38,33 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingTop: 48,
+    paddingTop: 80,
     alignItems: 'center',
+  },
+  brandMark: {
+    width: 80,
+    height: 80,
+    borderRadius: 20,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  brandLetter: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: -1,
   },
   appName: {
     ...typography.largeTitle,
+    fontSize: 40,
     color: colors.primaryText,
     marginBottom: 8,
   },
   tagline: {
     ...typography.body,
     color: colors.secondaryText,
-    marginBottom: 40,
-  },
-  hero: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  heroIcon: {
-    fontSize: 80,
   },
   actions: {
     paddingBottom: 32,

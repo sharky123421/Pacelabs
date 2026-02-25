@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,290 +6,547 @@ import {
   SafeAreaView,
   ScrollView,
   TouchableOpacity,
-  Modal,
-  Pressable,
-  Dimensions,
+  ActivityIndicator,
+  Animated,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { colors, typography, spacing, theme } from '../theme';
 import { PrimaryButton, SecondaryButton } from '../components';
+import { getActivePlan, getPlanSessions, fetchPlanBuilderUserData } from '../services/planBuilder';
+import { useAuth } from '../contexts/AuthContext';
+import { useRunnerMode } from '../contexts/RunnerModeContext';
+import {
+  getLatestAdaptation,
+  getCoachingSummary,
+  runFullCoachingPipeline,
+  getAthleteState,
+  getLatestBottleneck,
+  getActivePhilosophy,
+} from '../services/coachingEngine';
 
 const PADDING = spacing.screenPaddingHorizontal;
-const SECTION_TITLE = { ...typography.caption, color: colors.secondaryText, letterSpacing: 1, marginBottom: 8 };
-const HAS_PLAN = true;
-const SHOW_BANNER = false; // Set true for "Plan updated" banner
 
 const SESSION_COLORS = {
-  easy: colors.sessionEasy,
-  tempo: colors.sessionTempo,
-  intervals: colors.sessionIntervals,
-  long: colors.sessionLong,
-  race: colors.sessionRace,
-  rest: colors.sessionRest,
+  easy: colors.sessionEasy ?? '#34C759',
+  tempo: colors.sessionTempo ?? '#FF9500',
+  intervals: colors.sessionIntervals ?? '#FF3B30',
+  long: colors.sessionLong ?? '#007AFF',
+  race: colors.sessionRace ?? '#AF52DE',
+  rest: colors.sessionRest ?? '#8E8E93',
+  recovery: colors.sessionEasy ?? '#34C759',
+  progression: colors.sessionTempo ?? '#FF9500',
+  hills: colors.sessionIntervals ?? '#FF3B30',
 };
 
-const THIS_WEEK = [
-  { id: '1', day: 'MON', date: 'Feb 17', type: 'easy', label: 'EASY RUN', distance: '8 km', target: '5:50–6:10 /km · Zone 2', status: 'completed', actual: '8.2 km' },
-  { id: '2', day: 'TUE', date: 'Feb 18', type: 'rest', label: 'REST', distance: '—', target: '—', status: 'completed' },
-  { id: '3', day: 'WED', date: 'Feb 19', type: 'tempo', label: 'TEMPO RUN', distance: '10 km', target: '4:48–4:55 /km · Zone 3–4', status: 'completed', actual: '10.1 km' },
-  { id: '4', day: 'THU', date: 'Feb 20', type: 'easy', label: 'EASY RUN', distance: '6 km', target: '5:45–6:15 /km · Zone 2', status: 'completed', actual: '6 km' },
-  { id: '5', day: 'FRI', date: 'Feb 21', type: 'rest', label: 'REST', distance: '—', target: '—', status: 'today' },
-  { id: '6', day: 'SAT', date: 'Feb 22', type: 'long', label: 'LONG RUN', distance: '21 km', target: '5:20–5:40 /km · Zone 2', status: 'future' },
-  { id: '7', day: 'SUN', date: 'Feb 23', type: 'easy', label: 'EASY RUN', distance: '8 km', target: '5:50–6:10 /km · Zone 2', status: 'future' },
+const ANALYSIS_STEPS = [
+  { key: 'metrics', label: 'Calculating fitness metrics...' },
+  { key: 'ingest', label: 'Analyzing athlete data...' },
+  { key: 'bottleneck', label: 'Detecting training bottlenecks...' },
+  { key: 'philosophy', label: 'Selecting training philosophy...' },
+  { key: 'done', label: 'Analysis complete — opening coach chat...' },
 ];
 
-const UPCOMING = [
-  { day: 'Mon 24', type: 'easy', distance: '8 km', target: '5:50 /km' },
-  { day: 'Tue 25', type: 'rest', distance: '—', target: '—' },
-  { day: 'Wed 26', type: 'tempo', distance: '10 km', target: '4:48 /km' },
-  { day: 'Thu 27', type: 'easy', distance: '6 km', target: '5:45 /km' },
-  { day: 'Fri 28', type: 'rest', distance: '—', target: '—' },
-  { day: 'Sat 1', type: 'long', distance: '22 km', target: '5:25 /km' },
-  { day: 'Sun 2', type: 'easy', distance: '8 km', target: '5:50 /km' },
-];
-
-const CALENDAR_DAYS = []; // Generate 42 days for current month view
-for (let i = 1; i <= 28; i++) {
-  const d = i % 7;
-  const hasSession = [2, 5, 7, 9, 12, 14, 16, 19, 21, 23, 26, 28].includes(i);
-  const type = hasSession ? (i % 3 === 0 ? 'long' : i % 3 === 1 ? 'easy' : 'tempo') : 'rest';
-  const completed = i < 21;
-  const missed = i === 10;
-  CALENDAR_DAYS.push({ day: i, type, hasSession, completed, missed, isToday: i === 21 });
+function formatSessionLabel(type) {
+  if (!type) return 'RUN';
+  const t = type.toLowerCase();
+  if (t === 'rest') return 'REST DAY';
+  return t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function PlanScreen({ navigation }) {
-  const [viewMode, setViewMode] = useState('list'); // 'list' | 'calendar'
-  const [selectedDay, setSelectedDay] = useState(null);
-  const weekProgress = 34 / 58;
+// ─── ANALYSIS PROGRESS VIEW ─────────────────────────────────────────────────
 
-  if (!HAS_PLAN) {
+function AnalysisView({ stepIndex, error, onRetry, onCancel }) {
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  React.useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.08, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [pulseAnim]);
+
+  if (error) {
+    return (
+      <View style={genStyles.container}>
+        <Text style={genStyles.errorTitle}>Something went wrong</Text>
+        <Text style={genStyles.errorMsg}>{error}</Text>
+        <PrimaryButton title="Try again" onPress={onRetry} style={genStyles.btn} />
+        <SecondaryButton title="Cancel" onPress={onCancel} style={genStyles.btn} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={genStyles.container}>
+      <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+        <View style={genStyles.iconCircle}>
+          <Text style={genStyles.iconText}>P</Text>
+        </View>
+      </Animated.View>
+
+      <Text style={genStyles.title}>Analyzing your data</Text>
+      <Text style={genStyles.subtitle}>
+        Finding your strengths and weaknesses...
+      </Text>
+
+      <View style={genStyles.steps}>
+        {ANALYSIS_STEPS.map((step, i) => {
+          const isDone = i < stepIndex;
+          const isActive = i === stepIndex;
+          return (
+            <View key={step.key} style={genStyles.stepRow}>
+              <View style={[
+                genStyles.stepDot,
+                isDone && genStyles.stepDotDone,
+                isActive && genStyles.stepDotActive,
+              ]}>
+                {isDone && <Text style={genStyles.stepCheck}>✓</Text>}
+                {isActive && <ActivityIndicator size="small" color="#fff" />}
+              </View>
+              <Text style={[
+                genStyles.stepLabel,
+                isDone && genStyles.stepLabelDone,
+                isActive && genStyles.stepLabelActive,
+              ]}>
+                {step.label}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+const genStyles = StyleSheet.create({
+  container: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  iconCircle: {
+    width: 80, height: 80, borderRadius: 40, backgroundColor: colors.accent,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 24,
+  },
+  iconText: { fontSize: 36, fontWeight: '700', color: '#fff' },
+  title: { ...typography.largeTitle, color: colors.primaryText, marginBottom: 8 },
+  subtitle: { ...typography.body, color: colors.secondaryText, marginBottom: 32, textAlign: 'center' },
+  steps: { width: '100%', gap: 16 },
+  stepRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  stepDot: {
+    width: 28, height: 28, borderRadius: 14, backgroundColor: colors.backgroundSecondary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  stepDotDone: { backgroundColor: colors.success },
+  stepDotActive: { backgroundColor: colors.accent },
+  stepCheck: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  stepLabel: { ...typography.body, color: colors.secondaryText },
+  stepLabelDone: { color: colors.success },
+  stepLabelActive: { color: colors.primaryText, fontWeight: '600' },
+  errorTitle: { ...typography.title, color: colors.primaryText, marginBottom: 8 },
+  errorMsg: { ...typography.body, color: colors.secondaryText, textAlign: 'center', marginBottom: 24, lineHeight: 20 },
+  btn: { width: '100%', marginBottom: 12 },
+});
+
+// ─── MAIN PLAN SCREEN ───────────────────────────────────────────────────────
+
+export function PlanScreen({ navigation }) {
+  const { user } = useAuth();
+  const { isBeginner } = useRunnerMode();
+  const [plan, setPlan] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [adaptation, setAdaptation] = useState(null);
+  const [coachingSummary, setCoachingSummary] = useState(null);
+
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisStep, setAnalysisStep] = useState(0);
+  const [analysisError, setAnalysisError] = useState(null);
+
+  const loadPlan = useCallback(async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    try {
+      const active = await getActivePlan(user.id);
+      setPlan(active);
+      if (active?.id) {
+        const generatedAt = active.generated_at ? new Date(active.generated_at).getTime() : Date.now();
+        const weeksElapsed = Math.floor((Date.now() - generatedAt) / (7 * 24 * 60 * 60 * 1000));
+        const currentWeek = Math.min(active.total_weeks || 12, 1 + Math.max(0, weeksElapsed));
+        const list = await getPlanSessions(active.id, currentWeek);
+        setSessions(list);
+      } else {
+        setSessions([]);
+      }
+    } catch (_) {
+      setPlan(null);
+      setSessions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isAnalyzing) {
+        loadPlan();
+        getLatestAdaptation().then(setAdaptation).catch(() => setAdaptation(null));
+        getCoachingSummary().then(setCoachingSummary).catch(() => setCoachingSummary(null));
+      }
+    }, [loadPlan, isAnalyzing]),
+  );
+
+  const startAnalysisAndChat = useCallback(async () => {
+    if (!user?.id) return;
+
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    setAnalysisStep(0);
+
+    try {
+      await new Promise((r) => setTimeout(r, 200));
+
+      const stepTimer = setInterval(() => {
+        setAnalysisStep((s) => Math.min(s + 1, 3));
+      }, 2200);
+
+      let pipelineResult;
+      try {
+        pipelineResult = await runFullCoachingPipeline(user.id);
+      } catch (e) {
+        console.warn('Pipeline partial error:', e.message);
+        pipelineResult = { errors: [e.message] };
+      }
+      clearInterval(stepTimer);
+
+      setAnalysisStep(4);
+
+      const [athleteState, bottleneck, philosophy, userData] = await Promise.all([
+        getAthleteState().catch(() => null),
+        getLatestBottleneck().catch(() => null),
+        getActivePhilosophy().catch(() => null),
+        fetchPlanBuilderUserData(user.id).catch(() => null),
+      ]);
+
+      await new Promise((r) => setTimeout(r, 800));
+
+      setIsAnalyzing(false);
+
+      navigation.navigate('PlanBuilderChat', {
+        userData,
+        coachingAnalysis: {
+          athleteState,
+          bottleneck,
+          philosophy,
+          pipelineErrors: pipelineResult?.errors || [],
+        },
+      });
+    } catch (e) {
+      setAnalysisError(e.message || 'Unknown error');
+    }
+  }, [user?.id, navigation]);
+
+  const handleCancelAnalysis = () => {
+    setIsAnalyzing(false);
+    setAnalysisError(null);
+    loadPlan();
+  };
+
+  // ── Computed values ────────────────────────────────────────────────────────
+  const currentWeek =
+    plan?.generated_at && plan?.total_weeks
+      ? Math.min(
+          plan.total_weeks,
+          1 + Math.max(0, Math.floor((Date.now() - new Date(plan.generated_at).getTime()) / (7 * 24 * 60 * 60 * 1000))),
+        )
+      : 1;
+  const weekProgress = plan ? currentWeek / (plan.total_weeks || 12) : 0;
+  const daysUntilRace =
+    plan?.race_date ? Math.max(0, Math.ceil((new Date(plan.race_date) - new Date()) / 86400000)) : null;
+
+  const thisWeekSessions = sessions.map((s) => ({
+    id: s.id,
+    day: s.day_of_week ? s.day_of_week.slice(0, 3).toUpperCase() : '—',
+    date: s.date ? new Date(s.date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—',
+    type: s.type || 'easy',
+    label: formatSessionLabel(s.type),
+    distance: s.type === 'rest' ? '—' : `${s.distance_km ?? '—'} km`,
+    target: s.type === 'rest' ? '—' : [s.target_pace_min, s.target_pace_max].filter(Boolean).join('–') + ' /km',
+    status: s.status || 'planned',
+    coach_notes: s.coach_notes,
+    structure: s.structure,
+  }));
+
+  // ── ANALYZING VIEW ─────────────────────────────────────────────────────────
+  if (isAnalyzing) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <AnalysisView
+          stepIndex={analysisStep}
+          error={analysisError}
+          onRetry={startAnalysisAndChat}
+          onCancel={handleCancelAnalysis}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  // ── LOADING ────────────────────────────────────────────────────────────────
+  if (loading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Training Plan</Text>
         </View>
-        <View style={styles.noPlanCard}>
-          <Text style={styles.noPlanTitle}>No training plan yet</Text>
-          <Text style={styles.noPlanSubtitle}>Create a personalized plan based on your running history and goals</Text>
-          <PrimaryButton title="Create my plan" onPress={() => {}} style={styles.noPlanBtn} />
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.accent} />
         </View>
       </SafeAreaView>
     );
   }
 
+  // ── NO PLAN ────────────────────────────────────────────────────────────────
+  if (!plan) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Training Plan</Text>
+        </View>
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIcon}>
+            <Text style={styles.emptyIconText}>P</Text>
+          </View>
+          <Text style={styles.emptyTitle}>No training plan yet</Text>
+          <Text style={styles.emptySubtitle}>
+            We'll analyze your health data, find your strengths and weaknesses, then build a plan together with AI coaching
+          </Text>
+          <PrimaryButton title="Get started" onPress={startAnalysisAndChat} style={styles.emptyBtn} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ── PLAN VIEW ──────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Training Plan</Text>
-        <TouchableOpacity onPress={() => {}} style={styles.editBtn}>
-          <Text style={styles.editIcon}>✎</Text>
+        <TouchableOpacity onPress={startAnalysisAndChat} style={styles.rebuildBtn}>
+          <Text style={styles.rebuildText}>Rebuild</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {SHOW_BANNER && (
-          <TouchableOpacity style={styles.banner}>
-            <Text style={styles.bannerText}>Plan updated · Your Thursday session was adjusted based on your recovery data · Tap to see changes</Text>
-          </TouchableOpacity>
+        {/* PLAN OVERVIEW */}
+        <View style={styles.overviewCard}>
+          <Text style={styles.planName}>{plan.plan_name || 'AI Training Plan'}</Text>
+          {plan.coach_summary ? (
+            <Text style={styles.coachQuote} numberOfLines={3}>"{plan.coach_summary}"</Text>
+          ) : null}
+          <View style={styles.statsRow}>
+            <View style={styles.stat}>
+              <Text style={styles.statValue}>W{currentWeek}</Text>
+              <Text style={styles.statLabel}>of {plan.total_weeks || 12}</Text>
+            </View>
+            <View style={styles.stat}>
+              <Text style={styles.statValue}>{Math.round(weekProgress * 100)}%</Text>
+              <Text style={styles.statLabel}>complete</Text>
+            </View>
+            {daysUntilRace != null && (
+              <View style={styles.stat}>
+                <Text style={styles.statValue}>{daysUntilRace}d</Text>
+                <Text style={styles.statLabel}>to race</Text>
+              </View>
+            )}
+            <View style={styles.stat}>
+              <Text style={[styles.statValue, { color: colors.accent }]}>
+                {(plan.phase || 'Base').toUpperCase()}
+              </Text>
+              <Text style={styles.statLabel}>phase</Text>
+            </View>
+          </View>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${Math.min(100, weekProgress * 100)}%` }]} />
+          </View>
+        </View>
+
+        {/* COACHING FOCUS */}
+        {coachingSummary?.bottleneck && (
+          <View style={styles.focusCard}>
+            <View style={styles.focusHeader}>
+              <Text style={styles.focusTitle}>Coaching Focus</Text>
+            </View>
+            <Text style={styles.focusLabel}>{coachingSummary.bottleneck.label}</Text>
+            <Text style={styles.focusEvidence}>{coachingSummary.bottleneck.evidence}</Text>
+            {coachingSummary.philosophy && (
+              <View style={styles.focusPhilosophyBadge}>
+                <Text style={styles.focusPhilosophyText}>
+                  {coachingSummary.philosophy.mode?.replace(/_/g, ' ')?.replace(/\b\w/g, (c) => c.toUpperCase())}
+                </Text>
+              </View>
+            )}
+          </View>
         )}
 
-        {/* SECTION 1 — PLAN OVERVIEW */}
-        <View style={[styles.card, styles.overviewCard]}>
-          <View style={styles.overviewTop}>
-            <View style={styles.overviewLeft}>
-              <Text style={styles.planName}>Marathon Plan — Berlin 2026</Text>
-              <View style={styles.phaseBadge}><Text style={styles.phaseBadgeText}>BUILD PHASE</Text></View>
-              <Text style={styles.weekLabel}>Week 8 of 16</Text>
-            </View>
-            <View style={styles.overviewRight}>
-              <Text style={styles.daysUntil}>187 days</Text>
-              <Text style={styles.daysLabel}>until race</Text>
-              <View style={styles.circleProgress}><Text style={styles.circleProgressText}>50%</Text></View>
-            </View>
+        {/* THIS WEEK'S SESSIONS */}
+        <Text style={styles.sectionTitle}>THIS WEEK</Text>
+        {thisWeekSessions.length === 0 ? (
+          <View style={styles.noSessionsCard}>
+            <Text style={styles.noSessionsText}>No sessions planned for this week</Text>
           </View>
-          <View style={styles.progressBarTrack}>
-            <View style={[styles.progressBarFill, { width: '50%' }]} />
-          </View>
-          <Text style={styles.progressCaption}>Week 8 of 16 · 50% complete</Text>
-        </View>
-
-        {/* SECTION 2 — LOAD CHART */}
-        <View style={styles.section}>
-          <Text style={SECTION_TITLE}>TRAINING LOAD PLAN</Text>
-          <View style={[styles.card, styles.chartCard]}>
-            <View style={styles.loadChartPlaceholder}><Text style={styles.chartPlaceholderText}>Weekly volume by phase (Base / Build / Peak / Taper)</Text></View>
-          </View>
-        </View>
-
-        {/* List | Calendar toggle */}
-        <View style={styles.toggleRow}>
-          <TouchableOpacity style={[styles.toggleBtn, viewMode === 'list' && styles.toggleBtnActive]} onPress={() => setViewMode('list')}>
-            <Text style={[styles.toggleBtnText, viewMode === 'list' && styles.toggleBtnTextActive]}>List</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.toggleBtn, viewMode === 'calendar' && styles.toggleBtnActive]} onPress={() => setViewMode('calendar')}>
-            <Text style={[styles.toggleBtnText, viewMode === 'calendar' && styles.toggleBtnTextActive]}>Calendar</Text>
-          </TouchableOpacity>
-        </View>
-
-        {viewMode === 'list' && (
-          <>
-            {/* SECTION 3 — THIS WEEK */}
-            <View style={styles.section}>
-              <Text style={SECTION_TITLE}>THIS WEEK</Text>
-              <Text style={styles.subtitle}>Week of Feb 17–23</Text>
-              <View style={styles.weekStatsRow}>
-                <Text style={styles.weekStat}>Planned: 58km</Text>
-                <Text style={styles.weekStat}>Completed: 34km</Text>
-                <Text style={styles.weekStat}>Remaining: 24km</Text>
-              </View>
-              <View style={styles.weekProgressBar}><View style={[styles.weekProgressFill, { width: `${weekProgress * 100}%` }]} /></View>
-              {THIS_WEEK.map((s) => (
-                <TouchableOpacity key={s.id} style={[styles.sessionCard, { borderLeftColor: SESSION_COLORS[s.type] || colors.divider }]} onPress={() => navigation.navigate('SessionDetail', { session: s })}>
-                  <View style={styles.sessionCardLeft}>
-                    <Text style={styles.sessionDay}>{s.day}</Text>
-                    <Text style={styles.sessionDate}>{s.date}</Text>
-                    <View style={[styles.sessionTypeBadge, { backgroundColor: (SESSION_COLORS[s.type] || colors.divider) + '25' }]}><Text style={[styles.sessionTypeText, { color: SESSION_COLORS[s.type] || colors.primaryText }]}>{s.label}</Text></View>
-                    <Text style={styles.sessionDistance}>{s.distance}</Text>
-                    <Text style={styles.sessionTarget}>{s.target}</Text>
-                  </View>
-                  <View style={styles.sessionCardRight}>
-                    {s.status === 'completed' && <Text style={styles.statusIcon}>✓</Text>}
-                    {s.status === 'completed' && s.actual && <Text style={styles.actualText}>{s.actual}</Text>}
-                    {s.status === 'today' && <View style={styles.todayBadge}><Text style={styles.todayBadgeText}>Today</Text></View>}
-                    {s.status === 'missed' && <Text style={styles.missedIcon}>✗</Text>}
-                    {s.status === 'future' && <Text style={styles.chevron}>›</Text>}
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* SECTION 4 — UPCOMING */}
-            <View style={styles.section}>
-              <Text style={SECTION_TITLE}>COMING UP</Text>
-              {UPCOMING.map((s, i) => (
-                <View key={i} style={styles.upcomingRow}>
-                  <Text style={styles.upcomingDay}>{s.day}</Text>
-                  <View style={[styles.upcomingBadge, { backgroundColor: (SESSION_COLORS[s.type === 'rest' ? 'rest' : s.type] || colors.divider) + '20' }]}><Text style={styles.upcomingBadgeText}>{s.type === 'rest' ? 'Rest' : s.type.toUpperCase()}</Text></View>
-                  <Text style={styles.upcomingDist}>{s.distance}</Text>
-                  <Text style={styles.upcomingTarget}>{s.target}</Text>
+        ) : (
+          thisWeekSessions.map((s) => (
+            <TouchableOpacity
+              key={s.id}
+              style={[styles.sessionCard, { borderLeftColor: SESSION_COLORS[s.type] || colors.divider }]}
+              onPress={() => navigation.navigate('SessionDetail', { session: s })}
+              activeOpacity={0.8}
+            >
+              <View style={styles.sessionLeft}>
+                <View style={styles.sessionDayRow}>
+                  <Text style={styles.sessionDay}>{s.day}</Text>
+                  <Text style={styles.sessionDate}>{s.date}</Text>
                 </View>
-              ))}
-              <TouchableOpacity><Text style={styles.linkText}>View full calendar →</Text></TouchableOpacity>
+                <Text style={styles.sessionLabel}>{s.label}</Text>
+                {s.type !== 'rest' && <Text style={styles.sessionMeta}>{s.distance} · {s.target}</Text>}
+                {s.coach_notes && <Text style={styles.sessionNotes} numberOfLines={1}>{s.coach_notes}</Text>}
+              </View>
+              <View style={styles.sessionRight}>
+                {s.status === 'completed' && <Text style={styles.doneIcon}>✓</Text>}
+                {s.status === 'missed' && <Text style={styles.missedIcon}>✗</Text>}
+                {s.status === 'planned' && <Text style={styles.chevron}>›</Text>}
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
+
+        {/* ADAPTATION */}
+        {adaptation?.ai_explanation && (
+          <>
+            <Text style={styles.sectionTitle}>WEEKLY ADAPTATION</Text>
+            <View style={styles.adaptCard}>
+              <View style={styles.adaptTop}>
+                <Text style={styles.adaptOutcome}>
+                  {adaptation.adaptation_outcome?.replace(/_/g, ' ')}
+                </Text>
+                {adaptation.volume_adjustment_percent != null && adaptation.volume_adjustment_percent !== 0 && (
+                  <View style={[styles.adaptBadge, {
+                    backgroundColor: adaptation.volume_adjustment_percent > 0 ? colors.success + '20' : colors.warning + '20',
+                  }]}>
+                    <Text style={[styles.adaptBadgeText, {
+                      color: adaptation.volume_adjustment_percent > 0 ? colors.success : colors.warning,
+                    }]}>
+                      {adaptation.volume_adjustment_percent > 0 ? '+' : ''}{adaptation.volume_adjustment_percent}% vol
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.adaptExplanation}>{adaptation.ai_explanation}</Text>
+              <View style={styles.adaptStats}>
+                <Text style={styles.adaptStatText}>
+                  {adaptation.completed_sessions}/{adaptation.planned_sessions} sessions
+                </Text>
+                <Text style={styles.adaptStatText}>·</Text>
+                <Text style={styles.adaptStatText}>
+                  {Number(adaptation.actual_km || 0).toFixed(0)}/{Number(adaptation.planned_km || 0).toFixed(0)} km
+                </Text>
+              </View>
             </View>
           </>
         )}
 
-        {viewMode === 'calendar' && (
-          <View style={styles.section}>
-            <Text style={SECTION_TITLE}>FEBRUARY 2026</Text>
-            <View style={styles.calendarGrid}>
-              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (<Text key={i} style={styles.calendarHeaderCell}>{d}</Text>))}
-              {CALENDAR_DAYS.map((d) => (
-                <TouchableOpacity key={d.day} style={[styles.calendarCell, d.isToday && styles.calendarCellToday]} onPress={() => setSelectedDay(d)}>
-                  <Text style={[styles.calendarCellDay, d.isToday && styles.calendarCellDayToday]}>{d.day}</Text>
-                  {d.hasSession && <View style={[styles.calendarDot, { backgroundColor: SESSION_COLORS[d.type] }, d.completed && styles.calendarDotDone]} />}
-                  {d.missed && <Text style={styles.calendarX}>✗</Text>}
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        )}
+        <View style={{ height: 60 }} />
       </ScrollView>
-
-      {/* Day popup when tapping calendar cell */}
-      <Modal visible={!!selectedDay} transparent animationType="slide">
-        <Pressable style={styles.modalOverlay} onPress={() => setSelectedDay(null)}>
-          <Pressable style={styles.dayPopup} onPress={(e) => e.stopPropagation()}>
-            {selectedDay && (
-              <>
-                <Text style={styles.dayPopupTitle}>Feb {selectedDay.day}</Text>
-                <Text style={styles.dayPopupSubtitle}>{selectedDay.hasSession ? (selectedDay.type === 'rest' ? 'Rest day' : `${selectedDay.type} run`) : 'No session'}</Text>
-                <SecondaryButton title="Close" onPress={() => setSelectedDay(null)} />
-              </>
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: PADDING, paddingVertical: 12 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: PADDING, paddingVertical: 14,
+  },
   headerTitle: { ...typography.largeTitle, fontWeight: '700', color: colors.primaryText },
-  editBtn: { padding: 8 },
-  editIcon: { fontSize: 20, color: colors.accent },
+  rebuildBtn: {
+    backgroundColor: colors.accent + '15', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
+  },
+  rebuildText: { ...typography.secondary, color: colors.link, fontWeight: '600' },
   scroll: { paddingHorizontal: PADDING, paddingBottom: 100 },
-  banner: { backgroundColor: colors.accent + '20', padding: 14, borderRadius: 10, marginBottom: 16 },
-  bannerText: { ...typography.secondary, color: colors.primaryText },
-  card: { backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 20, ...theme.cardShadow },
-  overviewCard: { marginBottom: 20 },
-  overviewTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
-  overviewLeft: {},
-  planName: { ...typography.title, color: colors.primaryText, marginBottom: 8 },
-  phaseBadge: { alignSelf: 'flex-start', backgroundColor: colors.accent + '25', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginBottom: 8 },
-  phaseBadgeText: { ...typography.caption, fontWeight: '700', color: colors.accent },
-  weekLabel: { ...typography.secondary, color: colors.secondaryText },
-  overviewRight: { alignItems: 'flex-end' },
-  daysUntil: { ...typography.title, fontSize: 24, color: colors.primaryText },
-  daysLabel: { ...typography.caption, color: colors.secondaryText },
-  circleProgress: { width: 44, height: 44, borderRadius: 22, borderWidth: 3, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
-  circleProgressText: { ...typography.caption, fontWeight: '700', color: colors.accent },
-  progressBarTrack: { height: 4, backgroundColor: colors.backgroundSecondary, borderRadius: 2, marginBottom: 8 },
-  progressBarFill: { height: '100%', backgroundColor: colors.accent, borderRadius: 2 },
-  progressCaption: { ...typography.caption, color: colors.secondaryText },
-  section: { marginBottom: 24 },
-  chartCard: {},
-  loadChartPlaceholder: { height: 140, backgroundColor: colors.backgroundSecondary, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  chartPlaceholderText: { ...typography.caption, color: colors.secondaryText },
-  toggleRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
-  toggleBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, backgroundColor: colors.backgroundSecondary },
-  toggleBtnActive: { backgroundColor: colors.accent },
-  toggleBtnText: { ...typography.secondary, color: colors.primaryText },
-  toggleBtnTextActive: { ...typography.secondary, color: '#FFFFFF' },
-  subtitle: { ...typography.caption, color: colors.secondaryText, marginBottom: 12 },
-  weekStatsRow: { flexDirection: 'row', gap: 16, marginBottom: 8 },
-  weekStat: { ...typography.secondary, color: colors.primaryText },
-  weekProgressBar: { height: 4, backgroundColor: colors.backgroundSecondary, borderRadius: 2, marginBottom: 16 },
-  weekProgressFill: { height: '100%', backgroundColor: colors.success, borderRadius: 2 },
-  sessionCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 16, marginBottom: 12, borderLeftWidth: 4, ...theme.cardShadow },
-  sessionCardLeft: { flex: 1 },
+  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  emptyIcon: {
+    width: 80, height: 80, borderRadius: 40, backgroundColor: colors.accent,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 20,
+  },
+  emptyIconText: { fontSize: 36, fontWeight: '700', color: '#fff' },
+  emptyTitle: { ...typography.title, color: colors.primaryText, marginBottom: 8 },
+  emptySubtitle: {
+    ...typography.body, color: colors.secondaryText, textAlign: 'center', marginBottom: 28, lineHeight: 22,
+  },
+  emptyBtn: { width: '100%', marginBottom: 16 },
+  overviewCard: {
+    backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 20,
+    marginBottom: 16, ...theme.cardShadow,
+  },
+  planName: { ...typography.title, color: colors.primaryText, marginBottom: 6 },
+  coachQuote: { ...typography.body, fontStyle: 'italic', color: colors.secondaryText, marginBottom: 16, lineHeight: 20 },
+  statsRow: { flexDirection: 'row', gap: 12, marginBottom: 14 },
+  stat: {
+    flex: 1, backgroundColor: colors.backgroundSecondary, borderRadius: 10,
+    paddingVertical: 10, alignItems: 'center',
+  },
+  statValue: { ...typography.title, fontSize: 18, color: colors.primaryText },
+  statLabel: { ...typography.caption, color: colors.secondaryText, marginTop: 2 },
+  progressTrack: { height: 4, backgroundColor: colors.backgroundSecondary, borderRadius: 2 },
+  progressFill: { height: '100%', backgroundColor: colors.accent, borderRadius: 2 },
+  focusCard: {
+    backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 16,
+    marginBottom: 16, borderLeftWidth: 4, borderLeftColor: colors.coachPurple, ...theme.cardShadow,
+  },
+  focusHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  focusTitle: { ...typography.secondary, fontWeight: '600', color: colors.primaryText },
+  focusLabel: { ...typography.title, color: colors.primaryText, marginBottom: 4, fontSize: 16 },
+  focusEvidence: { ...typography.caption, color: colors.secondaryText, lineHeight: 18, marginBottom: 10 },
+  focusPhilosophyBadge: {
+    alignSelf: 'flex-start', backgroundColor: colors.coachPurpleLight,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8,
+  },
+  focusPhilosophyText: { ...typography.caption, fontWeight: '600', color: colors.coachPurple },
+  sectionTitle: {
+    ...typography.caption, color: colors.secondaryText, letterSpacing: 1,
+    marginBottom: 10, marginTop: 8,
+  },
+  noSessionsCard: {
+    backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 20,
+    alignItems: 'center', marginBottom: 16, ...theme.cardShadow,
+  },
+  noSessionsText: { ...typography.body, color: colors.secondaryText },
+  sessionCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.card, borderRadius: theme.radius.card,
+    padding: 16, marginBottom: 10, borderLeftWidth: 4, ...theme.cardShadow,
+  },
+  sessionLeft: { flex: 1 },
+  sessionDayRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   sessionDay: { ...typography.caption, fontWeight: '700', color: colors.primaryText },
-  sessionDate: { ...typography.caption, color: colors.secondaryText, marginBottom: 4 },
-  sessionTypeBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginBottom: 4 },
-  sessionTypeText: { ...typography.caption, fontWeight: '600' },
-  sessionDistance: { ...typography.body, color: colors.primaryText },
-  sessionTarget: { ...typography.caption, color: colors.secondaryText, marginTop: 2 },
-  sessionCardRight: { alignItems: 'flex-end' },
-  statusIcon: { fontSize: 20, color: colors.success },
-  actualText: { ...typography.caption, color: colors.secondaryText },
-  todayBadge: { backgroundColor: colors.accent + '25', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  todayBadgeText: { ...typography.caption, fontWeight: '600', color: colors.accent },
+  sessionDate: { ...typography.caption, color: colors.secondaryText },
+  sessionLabel: { ...typography.body, fontWeight: '600', color: colors.primaryText, marginBottom: 2 },
+  sessionMeta: { ...typography.caption, color: colors.secondaryText },
+  sessionNotes: { ...typography.caption, color: colors.secondaryText, fontStyle: 'italic', marginTop: 4 },
+  sessionRight: { marginLeft: 12 },
+  doneIcon: { fontSize: 20, color: colors.success },
   missedIcon: { fontSize: 20, color: colors.destructive },
   chevron: { fontSize: 24, color: colors.secondaryText },
-  upcomingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider },
-  upcomingDay: { width: 56, ...typography.secondary, color: colors.primaryText },
-  upcomingBadge: { width: 72, paddingVertical: 2, borderRadius: 4 },
-  upcomingBadgeText: { ...typography.caption, fontSize: 11, color: colors.primaryText },
-  upcomingDist: { width: 48, ...typography.caption, color: colors.secondaryText },
-  upcomingTarget: { flex: 1, ...typography.caption, color: colors.secondaryText },
-  linkText: { ...typography.secondary, color: colors.accent, marginTop: 12 },
-  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  calendarHeaderCell: { width: `${100/7}%`, textAlign: 'center', ...typography.caption, color: colors.secondaryText, marginBottom: 8 },
-  calendarCell: { width: `${100/7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center', padding: 4 },
-  calendarCellToday: { backgroundColor: colors.accent + '15', borderRadius: 20 },
-  calendarCellDay: { ...typography.caption, color: colors.primaryText },
-  calendarCellDayToday: { fontWeight: '700', color: colors.accent },
-  calendarDot: { width: 6, height: 6, borderRadius: 3, marginTop: 2 },
-  calendarDotDone: { opacity: 0.7 },
-  calendarX: { ...typography.caption, color: colors.destructive, marginTop: 2 },
-  noPlanCard: { flex: 1, margin: PADDING, backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 32, alignItems: 'center', justifyContent: 'center', ...theme.cardShadow },
-  noPlanTitle: { ...typography.title, color: colors.primaryText, marginBottom: 8 },
-  noPlanSubtitle: { ...typography.body, color: colors.secondaryText, textAlign: 'center', marginBottom: 24 },
-  noPlanBtn: { minWidth: 200 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  dayPopup: { backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24 },
-  dayPopupTitle: { ...typography.title, color: colors.primaryText },
-  dayPopupSubtitle: { ...typography.body, color: colors.secondaryText, marginTop: 4, marginBottom: 20 },
+  adaptCard: {
+    backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 16,
+    marginBottom: 16, borderLeftWidth: 4, borderLeftColor: colors.accent, ...theme.cardShadow,
+  },
+  adaptTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  adaptOutcome: { ...typography.secondary, fontWeight: '600', color: colors.primaryText, textTransform: 'capitalize' },
+  adaptBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  adaptBadgeText: { ...typography.caption, fontWeight: '600' },
+  adaptExplanation: { ...typography.body, color: colors.primaryText, lineHeight: 20, marginBottom: 10 },
+  adaptStats: { flexDirection: 'row', gap: 6 },
+  adaptStatText: { ...typography.caption, color: colors.secondaryText },
 });

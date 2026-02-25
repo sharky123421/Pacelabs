@@ -37,11 +37,13 @@ export function OnboardingPathScreen({ navigation }) {
       } else if (step === ONBOARDING_STEPS.STEP_AI_ANALYSIS) {
         navigation.replace('OnboardingAIAnalysis');
       } else if (step === ONBOARDING_STEPS.STEP_PROFILE_REVEAL) {
-        navigation.replace('OnboardingProfileReveal');
+        const isBeginner = progress?.payload?.runner_mode === 'beginner' || progress?.payload?.questionnaire_answers?._beginner_flow;
+        navigation.replace('OnboardingProfileReveal', { beginner: !!isBeginner });
       } else if (step === ONBOARDING_STEPS.STEP_GOAL_SETTING) {
         navigation.replace('OnboardingGoalSetting');
       } else if (step === ONBOARDING_STEPS.STEP_PLAN_GENERATION) {
-        navigation.replace('OnboardingPlanGeneration');
+        const isBeginner2 = progress?.payload?.runner_mode === 'beginner' || progress?.payload?.questionnaire_answers?._beginner_flow;
+        navigation.replace('OnboardingPlanGeneration', { beginner: !!isBeginner2 });
       }
     }).catch(() => {});
   }, [user?.id]);
@@ -96,7 +98,7 @@ export function OnboardingPathScreen({ navigation }) {
         >
           <View style={styles.cardRow}>
             <View style={[styles.iconCircle, { backgroundColor: colors.backgroundSecondary }]}>
-              <Text style={styles.manualIcon}>🏃</Text>
+              <Text style={styles.manualIcon}>P</Text>
             </View>
             <View style={styles.cardTextBlock}>
               <Text style={styles.cardTitle}>Set up manually</Text>

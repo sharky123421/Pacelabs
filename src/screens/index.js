@@ -18,4 +18,13 @@ export { RunDetailScreen } from './RunDetailScreen';
 export { AnalyticsScreen } from './AnalyticsScreen';
 export { PlanScreen } from './PlanScreen';
 export { SessionDetailScreen } from './SessionDetailScreen';
+export {
+  PlanBuilderWelcomeScreen,
+  PlanBuilderChatScreen,
+  PlanBuilderGenerationScreen,
+} from './plan';
 export { ProfileScreen } from './ProfileScreen';
+export { CoachChatScreen } from './CoachChatScreen';
+export { BeginnerTodayScreen } from './BeginnerTodayScreen';
+export { BeginnerAnalyticsScreen } from './BeginnerAnalyticsScreen';
+export { BeginnerPostRunScreen } from './BeginnerPostRunScreen';

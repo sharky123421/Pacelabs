@@ -1,0 +1,19 @@
+diff --git a/node_modules/expo/node_modules/@expo/cli/build/src/utils/telemetry/Telemetry.js b/node_modules/expo/node_modules/@expo/cli/build/src/utils/telemetry/Telemetry.js
+index 1234567..abcdefg 100644
+--- a/node_modules/expo/node_modules/@expo/cli/build/src/utils/telemetry/Telemetry.js
++++ b/node_modules/expo/node_modules/@expo/cli/build/src/utils/telemetry/Telemetry.js
+@@ -25,7 +25,13 @@ const _UserSettings = require("../../api/user/UserSettings");
+         default: obj
+     };
+ }
+ const debug = require('debug')('expo:telemetry');
++function _getAnonymousIdSafe() {
++    try {
++        if (typeof _UserSettings.getAnonymousId === 'function') return _UserSettings.getAnonymousId();
++    } catch (_) {}
++    return _nodecrypto().default.randomUUID();
++}
+ class Telemetry {
+-    constructor({ anonymousId = (0, _UserSettings.getAnonymousId)(), sessionId = _nodecrypto().default.randomUUID(), userId, strategy = 'detached' } = {}){
++    constructor({ anonymousId = _getAnonymousIdSafe(), sessionId = _nodecrypto().default.randomUUID(), userId, strategy = 'detached' } = {}){
+         this.context = (0, _context.createContext)();

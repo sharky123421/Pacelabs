@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Alert,
   Platform,
+  Switch,
 } from 'react-native';
 import { PrimaryButton, SecondaryButton, Input, DividerWithText, SocialButton } from '../components';
 import { useAuth } from '../contexts/AuthContext';
@@ -16,7 +17,11 @@ import { isExpoGo } from '../lib/expoGo';
 import { colors, typography, spacing } from '../theme';
 
 export function SignUpScreen({ navigation }) {
-  const { signUp, signInWithIdToken, signInWithOAuth, setSession } = useAuth();
+  const { signUp, signInWithIdToken, signInWithOAuth, setSession, keepLoggedIn, setKeepLoggedIn } = useAuth();
+  const [keepLoggedInLocal, setKeepLoggedInLocal] = useState(true);
+  useEffect(() => {
+    setKeepLoggedInLocal(keepLoggedIn);
+  }, [keepLoggedIn]);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -116,6 +121,17 @@ export function SignUpScreen({ navigation }) {
           placeholder="Password (min 6 characters)"
           secureTextEntry
         />
+        <View style={styles.keepLoggedInRow}>
+          <Text style={styles.keepLoggedInLabel}>Keep me logged in</Text>
+          <Switch
+            value={keepLoggedInLocal}
+            onValueChange={(v) => {
+              setKeepLoggedInLocal(v);
+              setKeepLoggedIn(v);
+            }}
+            trackColor={{ false: colors.divider, true: colors.accent }}
+          />
+        </View>
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
         <PrimaryButton title="Continue" onPress={handleSignUp} loading={loading} />
         <DividerWithText />
@@ -142,25 +158,38 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: spacing.screenPaddingHorizontal,
-    paddingTop: 24,
+    paddingTop: 48,
     paddingBottom: 40,
   },
   title: {
     ...typography.largeTitle,
     color: colors.primaryText,
+    marginBottom: 32,
+    letterSpacing: -1,
+  },
+  keepLoggedInRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 24,
+    paddingVertical: 4,
+  },
+  keepLoggedInLabel: {
+    ...typography.body,
+    color: colors.secondaryText,
   },
   errorText: {
     ...typography.caption,
     color: colors.destructive,
     marginBottom: 12,
+    paddingHorizontal: 4,
   },
   link: {
-    marginTop: 24,
+    marginTop: 28,
     alignSelf: 'center',
   },
   linkText: {
     ...typography.secondary,
-    color: colors.accent,
+    color: colors.link,
   },
 });

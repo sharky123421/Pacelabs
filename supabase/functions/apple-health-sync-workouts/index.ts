@@ -1,7 +1,7 @@
 // Apple Health workout sync: app sends new Apple Watch runs after dedup.
 // Invoke with: POST /functions/v1/apple-health-sync-workouts
 // Body: { runs: [ { started_at, ended_at, distance_meters, duration_seconds, source_app, external_id, calories?, title? } ] }
-import "jsr:@supabase/functions-js/edge_runtime.d.ts";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {

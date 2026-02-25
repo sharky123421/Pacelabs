@@ -24,9 +24,8 @@ Use these exact packages and tools for everything you build. Never suggest alter
 - **Supabase** for auth, database, and file storage
 - **Supabase Edge Functions** for server-side processing
 
-## AI — Two model architecture
-- **Gemini 1.5 Pro**: deep analysis — Strava history import, runner profile, training plans, weekly analysis
-- **Groq Llama 3.3 70B**: real-time — daily briefings, post-run summaries, coach chat, quick adjustments
+## AI
+- **Groq Llama 3.3 70B**: coach chat, plan builder, daily briefings, post-run summaries, Strava/training analysis
 
 ## External APIs
 - **Strava API v3** — OAuth, history import, webhook sync
