@@ -98,7 +98,7 @@ function FloatingGlassTabBar({ state, navigation, descriptors }) {
     <View style={[floatingStyles.wrapper, { paddingBottom: insets.bottom }]} pointerEvents="box-none">
       <View style={floatingStyles.pill}>
         {Platform.OS === 'ios' ? (
-          <BlurView intensity={72} tint="light" style={StyleSheet.absoluteFill} />
+          <BlurView intensity={55} tint="light" style={StyleSheet.absoluteFill} />
         ) : null}
         <View style={[floatingStyles.pillFill, Platform.OS === 'android' && floatingStyles.pillFillAndroid]} />
         <View style={floatingStyles.tabsRow}>
@@ -148,24 +148,28 @@ const floatingStyles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingHorizontal: 28,
+    paddingTop: 12,
   },
   pill: {
     borderRadius: theme.radius.sheet,
     overflow: 'hidden',
     borderWidth: 0.5,
-    borderColor: 'rgba(0,0,0,0.06)',
+    borderColor: 'rgba(0,0,0,0.08)',
     minHeight: TAB_BAR_HEIGHT,
-    ...theme.glassShadowSoft,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 12,
   },
   pillFill: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.4)',
+    backgroundColor: 'rgba(255,255,255,0.28)',
     borderRadius: theme.radius.sheet,
   },
   pillFillAndroid: {
-    backgroundColor: 'rgba(255,255,255,0.85)',
+    backgroundColor: 'rgba(255,255,255,0.62)',
   },
   tabsRow: {
     flexDirection: 'row',
