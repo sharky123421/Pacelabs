@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, Suspense } from 'react';
 import {
   View,
   Text,
@@ -13,24 +13,12 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
-
-let Haptics;
-try {
-  Haptics = require('expo-haptics');
-} catch (_) {
-  Haptics = null;
-}
-const hapticLight = () => Haptics?.impactAsync?.(Haptics.ImpactFeedbackStyle.Light);
-const hapticMedium = () => Haptics?.impactAsync?.(Haptics.ImpactFeedbackStyle.Medium);
-const hapticSuccess = () => Haptics?.notificationAsync?.(Haptics.NotificationFeedbackType.Success);
 import { colors, typography, spacing, theme } from '../theme';
-import { PrimaryButton, SecondaryButton, SkeletonToday } from '../components';
-import { CoachChatScreen } from './CoachChatScreen';
-import { getAppleHealthConnection, fullSync, requestPermissions, saveAppleHealthConnection } from '../services/appleHealth';
-import { directUploadAndProcess } from '../services/appleHealthExport';
-import { isExpoGo } from '../lib/expoGo';
+import { PrimaryButton, SecondaryButton, SkeletonToday, GlassCard } from '../components';
+import { hapticLight } from '../lib/haptics';
+const CoachChatScreen = React.lazy(() => import('./CoachChatScreen').then(m => ({ default: m.CoachChatScreen })));
+import { getAppleHealthConnection, fullSync } from '../services/appleHealth';
 import { supabase } from '../lib/supabase';
-import * as DocumentPicker from 'expo-document-picker';
 import {
   fetchTodaySessionDecision,
   saveUserChoice,
@@ -45,13 +33,13 @@ import {
 import { getActivePlan, getPlanSessions } from '../services/planBuilder';
 
 const SESSION_COLORS = {
-  easy: colors.success,
-  tempo: colors.warning,
-  intervals: colors.destructive,
-  long: colors.link,
+  easy: colors.neonGreen,
+  tempo: colors.neonOrange,
+  intervals: colors.neonRed,
+  long: colors.neonCyan,
   rest: colors.secondaryText,
-  recovery: colors.success,
-  progression: colors.warning,
+  recovery: colors.neonGreen,
+  progression: colors.neonOrange,
 };
 const WARNING_BORDER = { none: null, amber: '#FF9F0A', orange: '#FF6B00', red: '#FF453A' };
 const WARNING_BG = { amber: '#FFF8EE', orange: '#FFF3E0', red: '#FFF0EF' };
@@ -163,8 +151,6 @@ export function TodayScreen() {
   const [manualWellness, setManualWellness] = useState({ sleep_quality: null, energy: null, soreness: null });
   const [manualStep, setManualStep] = useState(0);
   const [baselines, setBaselines] = useState(null);
-  const [healthImportLoading, setHealthImportLoading] = useState(false);
-  const [healthImportStatus, setHealthImportStatus] = useState(null);
   const [whyExpanded, setWhyExpanded] = useState(false);
   const [coachingSummary, setCoachingSummary] = useState(null);
   const [weekSessions, setWeekSessions] = useState([]);
@@ -202,64 +188,27 @@ export function TodayScreen() {
     }
   }, [userId]);
 
-  const handleConnectAppleHealth = useCallback(async () => {
-    if (!userId) return;
-    try {
-      if (isExpoGo) {
-        const result = await DocumentPicker.getDocumentAsync({
-          type: ['application/zip', 'application/xml', 'text/xml'],
-          copyToCacheDirectory: true,
-        });
-        if (result.canceled) return;
-        const asset = result.assets[0];
-        setHealthImportLoading(true);
-        setHealthImportStatus('Uploading and processing...');
-        const data = await directUploadAndProcess(
-          asset.uri,
-          asset.name || 'export.zip',
-          (detail) => setHealthImportStatus(detail),
-        );
-        await loadWellness();
-        hapticSuccess();
-        Alert.alert(
-          'Apple Health connected',
-          `${data.wellnessRows} days of health data and ${data.runsInserted} runs imported.`
-        );
-      } else {
-        const result = await requestPermissions();
-        if (result.error) {
-          Alert.alert('Apple Health', result.error);
-          return;
-        }
-        await saveAppleHealthConnection(userId, result.granted || []);
-        await fullSync(userId);
-        await loadWellness();
-        hapticSuccess();
-      }
-    } catch (e) {
-      Alert.alert('Error', e.message || 'Could not connect Apple Health');
-    } finally {
-      setHealthImportLoading(false);
-      setHealthImportStatus(null);
-    }
-  }, [userId, loadWellness]);
-
   useEffect(() => {
     loadWellness();
   }, [loadWellness]);
 
   useEffect(() => {
     if (!userId) return;
-    getBaselines().then(setBaselines).catch(() => setBaselines(null));
-    getCoachingSummary().then(setCoachingSummary).catch(() => setCoachingSummary(null));
-    getActivePlan(userId).then(async (plan) => {
-      if (!plan?.id) return;
-      const generatedAt = plan.generated_at ? new Date(plan.generated_at).getTime() : Date.now();
-      const weeksElapsed = Math.floor((Date.now() - generatedAt) / (7 * 24 * 60 * 60 * 1000));
-      const currentWeek = Math.min(plan.total_weeks || 12, 1 + Math.max(0, weeksElapsed));
-      const sessions = await getPlanSessions(plan.id, currentWeek);
+    Promise.all([
+      getBaselines().catch(() => null),
+      getCoachingSummary().catch(() => null),
+      getActivePlan(userId).then(async (plan) => {
+        if (!plan?.id) return [];
+        const generatedAt = plan.generated_at ? new Date(plan.generated_at).getTime() : Date.now();
+        const weeksElapsed = Math.floor((Date.now() - generatedAt) / (7 * 24 * 60 * 60 * 1000));
+        const currentWeek = Math.min(plan.total_weeks || 12, 1 + Math.max(0, weeksElapsed));
+        return getPlanSessions(plan.id, currentWeek);
+      }).catch(() => []),
+    ]).then(([b, cs, sessions]) => {
+      setBaselines(b);
+      setCoachingSummary(cs);
       setWeekSessions(sessions);
-    }).catch(() => { });
+    });
   }, [userId]);
 
   useEffect(() => {
@@ -358,7 +307,7 @@ export function TodayScreen() {
       completedDistance: null,
     }
     : DEFAULT_SESSION;
-  const sessionColor = SESSION_COLORS[todaySession.type] || colors.link;
+  const sessionColor = SESSION_COLORS[todaySession.type] || colors.linkNeon;
   const isRestDay = todaySession.type === 'rest';
   const isCompletedToday = todaySession.completedToday === true;
   const weatherStr = decision?.weather ? `${decision.weather.temp ?? '--'}\u00b0C \u00b7 ${decision.weather.description ?? ''}` : null;
@@ -380,7 +329,7 @@ export function TodayScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.linkNeon} />
         }
       >
         {/* HEADER */}
@@ -399,7 +348,7 @@ export function TodayScreen() {
 
         {/* Pattern warning card */}
         {patternDetected && patternDescription && (
-          <View style={styles.patternCard}>
+          <GlassCard style={styles.patternCard} variant="soft">
             <View style={styles.patternCardHeader}>
               <Text style={styles.patternCardTitle}>Multi-day pattern detected</Text>
               <TouchableOpacity hitSlop={12} onPress={() => { setPatternDismissed(true); hapticLight(); }}>
@@ -407,47 +356,17 @@ export function TodayScreen() {
               </TouchableOpacity>
             </View>
             <Text style={styles.patternCardBody}>{patternDescription}</Text>
-          </View>
+          </GlassCard>
         )}
 
         {/* READINESS */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.card,
-            WARNING_BORDER[warningLevel] && { borderWidth: 1.5, borderColor: WARNING_BORDER[warningLevel] },
-            { opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] }
-          ]}
+        <GlassCard
+          variant="default"
           onPress={() => setRecoveryDetailVisible(true)}
+          style={WARNING_BORDER[warningLevel] && { borderWidth: 1.5, borderColor: WARNING_BORDER[warningLevel] }}
         >
           {readinessState === 'none' && (
             <>
-              <View style={styles.connectHealthCard}>
-                <View style={styles.connectHealthTextBlock}>
-                  <Text style={styles.connectHealthTitle}>Apple Health</Text>
-                  <Text style={styles.connectHealthSubtitle}>
-                    {isExpoGo
-                      ? 'Import data from the Health app for HRV, sleep, and runs'
-                      : 'Connect Apple Health for automatic recovery analysis'}
-                  </Text>
-                </View>
-                <TouchableOpacity style={styles.connectHealthBtn} onPress={handleConnectAppleHealth} activeOpacity={0.8}>
-                  <Text style={styles.connectHealthBtnText}>
-                    {isExpoGo ? 'Import Health data' : 'Connect Apple Health'}
-                  </Text>
-                </TouchableOpacity>
-                {isExpoGo && (
-                  <Text style={styles.connectHealthHint}>
-                    Health app {'\u2192'} your profile (top right) {'\u2192'} Export all health data {'\u2192'} select the file here
-                  </Text>
-                )}
-              </View>
-
-              <View style={styles.manualDivider}>
-                <View style={styles.manualDividerLine} />
-                <Text style={styles.manualDividerText}>or answer manually</Text>
-                <View style={styles.manualDividerLine} />
-              </View>
-
               {manualStep === 0 && (
                 <>
                   <Text style={styles.readinessSubtitle}>How was your sleep last night?</Text>
@@ -560,7 +479,7 @@ export function TodayScreen() {
               {aiLoading ? 'Analyzing...' : verdictCfg.label}
             </Text>
           </View>
-        </Pressable>
+        </GlassCard>
 
         {/* Warning banner */}
         {showWarningBanner && (warningUi.warning_headline || warningUi.warning_subline) && (
@@ -587,11 +506,14 @@ export function TodayScreen() {
             <SecondaryButton title="Retry" onPress={() => { aiFetchedToday.current = false; onRefresh(); }} />
           </View>
         )}
-        <View style={[
-          styles.sessionCard,
-          { borderLeftColor: action === 'rest' ? colors.destructive : sessionColor },
-          action === 'replace' && { borderLeftColor: colors.warning },
-        ]}>
+        <GlassCard
+          variant="elevated"
+          style={[
+            styles.sessionCard,
+            { borderLeftColor: action === 'rest' ? colors.destructive : sessionColor },
+            action === 'replace' && { borderLeftColor: colors.warning },
+          ]}
+        >
           <View style={styles.sessionContent}>
             {aiDecision && action === 'proceed' && userChoice !== 'declined' && (
               <View style={[styles.sessionPill, { backgroundColor: colors.success + '15' }]}>
@@ -624,7 +546,7 @@ export function TodayScreen() {
                 )}
                 {userChoice === null && (
                   <>
-                    <PrimaryButton title="Take a rest day" onPress={async () => { hapticSuccess(); setUserChoice('accepted'); await saveUserChoice('accepted'); }} style={styles.startBtn} />
+                    <PrimaryButton title="Take a rest day" onPress={async () => { setUserChoice('accepted'); await saveUserChoice('accepted'); }} style={styles.startBtn} />
                     <TouchableOpacity onPress={() => Alert.alert('Run anyway?', 'Maximum recommended: 25 min easy jog, keep HR low.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Run anyway', onPress: () => setUserChoice('modified') }])}>
                       <Text style={styles.runAnywayLink}>Run anyway</Text>
                     </TouchableOpacity>
@@ -678,7 +600,6 @@ export function TodayScreen() {
                         <PrimaryButton
                           title="Train with adjusted session"
                           onPress={async () => {
-                            hapticSuccess();
                             setUserChoice('accepted');
                             await saveUserChoice('accepted');
                             if (recommended && (plannedSession || vsOriginal?.changed)) {
@@ -705,7 +626,6 @@ export function TodayScreen() {
                         <PrimaryButton
                           title="Use recovery session"
                           onPress={async () => {
-                            hapticSuccess();
                             setUserChoice('accepted');
                             await saveUserChoice('accepted');
                             if (recommended && (plannedSession || vsOriginal?.changed)) {
@@ -737,16 +657,14 @@ export function TodayScreen() {
               </>
             )}
           </View>
-        </View>
+        </GlassCard>
 
         {/* WHY THIS SESSION */}
         {(decision?.why_this_session || coachingSummary?.bottleneck) && !isRestDay && (
-          <Pressable
-            style={({ pressed }) => [
-              styles.whyCard,
-              { opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] }
-            ]}
+          <GlassCard
+            variant="soft"
             onPress={() => { setWhyExpanded((e) => !e); hapticLight(); }}
+            style={styles.whyCard}
           >
             <View style={styles.whyHeader}>
               <Text style={styles.whyHeaderTitle}>Why this session</Text>
@@ -807,7 +725,7 @@ export function TodayScreen() {
                 )}
               </View>
             )}
-          </Pressable>
+          </GlassCard>
         )}
 
         {/* WEEKLY OVERVIEW */}
@@ -843,10 +761,14 @@ export function TodayScreen() {
       </TouchableOpacity>
 
       {/* Coach chat modal */}
-      <CoachChatScreen
-        visible={coachChatVisible}
-        onClose={() => setCoachChatVisible(false)}
-      />
+      {coachChatVisible && (
+        <Suspense fallback={<ActivityIndicator style={{ flex: 1 }} />}>
+          <CoachChatScreen
+            visible={coachChatVisible}
+            onClose={() => setCoachChatVisible(false)}
+          />
+        </Suspense>
+      )}
 
       {/* Recovery detail modal */}
       <Modal
@@ -937,24 +859,23 @@ export function TodayScreen() {
         </Pressable>
       </Modal>
 
-      {healthImportLoading && (
-        <View style={styles.importOverlay}>
-          <View style={styles.importOverlayCard}>
-            <ActivityIndicator size="large" color={colors.accent} />
-            <Text style={styles.importOverlayText}>{healthImportStatus || 'Processing...'}</Text>
-          </View>
-        </View>
-      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.surfaceBase },
   scroll: { paddingHorizontal: spacing.screenPaddingHorizontal, paddingTop: 8, paddingBottom: 40 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
   headerLeft: { flex: 1 },
-  askCoachBtn: { backgroundColor: colors.accentLight, paddingHorizontal: 14, paddingVertical: 8, borderRadius: theme.radius.pill },
+  askCoachBtn: {
+    backgroundColor: colors.glassFillStrong,
+    borderWidth: 1,
+    borderColor: colors.glassStroke,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: theme.radius.pill,
+  },
   askCoachText: { ...typography.caption, fontWeight: '600', color: colors.accent },
   coachFab: {
     position: 'absolute', right: spacing.screenPaddingHorizontal, bottom: 100,
@@ -966,14 +887,15 @@ const styles = StyleSheet.create({
   greeting: { ...typography.largeTitle, color: colors.primaryText, marginBottom: 4 },
   date: { ...typography.secondary, color: colors.secondaryText },
   card: {
-    backgroundColor: colors.card, borderRadius: theme.radius.card,
-    padding: 20, marginBottom: spacing.betweenCards, ...theme.cardShadow,
+    backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card,
+    borderWidth: 1, borderColor: colors.glassStroke,
+    padding: 20, marginBottom: spacing.betweenCards, ...theme.glassShadowSoft,
   },
   readinessTitle: { ...typography.title, color: colors.primaryText, marginBottom: 12 },
   scaleRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   scaleBtn: {
     flex: 1, alignItems: 'center', paddingVertical: 10,
-    borderRadius: 10, backgroundColor: colors.backgroundSecondary,
+    borderRadius: 10, backgroundColor: colors.surfaceMuted,
   },
   scaleBtnSelected: { backgroundColor: colors.accent },
   scaleNumber: { ...typography.headline, color: colors.primaryText, marginBottom: 2 },
@@ -982,7 +904,7 @@ const styles = StyleSheet.create({
   scaleLabelSelected: { color: '#FFFFFF' },
   readinessHint: { ...typography.caption, color: colors.secondaryText, marginBottom: 12 },
   metricChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  chip: { backgroundColor: colors.backgroundSecondary, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  chip: { backgroundColor: colors.surfaceMuted, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   chipSelected: { backgroundColor: colors.accent },
   chipText: { ...typography.caption, color: colors.primaryText },
   chipTextSelected: { color: '#FFFFFF' },
@@ -994,13 +916,14 @@ const styles = StyleSheet.create({
   verdictDot: { width: 8, height: 8, borderRadius: 4 },
   verdictText: { ...typography.secondary, fontWeight: '600' },
   sessionCard: {
-    backgroundColor: colors.card, borderRadius: theme.radius.card,
+    backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card,
+    borderWidth: 1, borderColor: colors.glassStroke,
     marginBottom: spacing.betweenCards, overflow: 'hidden', borderLeftWidth: 4,
-    ...theme.cardShadow,
+    ...theme.glassShadowSoft,
   },
   sessionContent: { padding: 20 },
   sessionBadge: {
-    alignSelf: 'flex-start', backgroundColor: colors.backgroundSecondary,
+    alignSelf: 'flex-start', backgroundColor: colors.surfaceMuted,
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginBottom: 8,
   },
   sessionBadgeText: { ...typography.overline, color: colors.primaryText },
@@ -1017,7 +940,7 @@ const styles = StyleSheet.create({
   weekScroll: { paddingRight: spacing.screenPaddingHorizontal },
   dayPill: {
     minWidth: 72, marginRight: 10, paddingVertical: 12, paddingHorizontal: 14,
-    borderRadius: theme.radius.card, backgroundColor: colors.backgroundSecondary, alignItems: 'center',
+    borderRadius: theme.radius.card, backgroundColor: colors.surfaceMuted, alignItems: 'center',
   },
   dayPillToday: { backgroundColor: colors.accent },
   dayLabel: { ...typography.secondary, fontWeight: '600', color: colors.primaryText, marginBottom: 4 },
@@ -1026,7 +949,7 @@ const styles = StyleSheet.create({
   dayMetaMiss: { ...typography.caption, color: colors.destructive },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   modalBox: {
-    width: '100%', maxWidth: 340, backgroundColor: colors.card,
+    width: '100%', maxWidth: 340, backgroundColor: colors.surfaceElevated,
     borderRadius: theme.radius.modal, padding: 24, ...theme.cardShadowElevated,
   },
   modalTitle: { ...typography.title, color: colors.primaryText, marginBottom: 16 },
@@ -1034,8 +957,9 @@ const styles = StyleSheet.create({
   modalOptionText: { ...typography.body, color: colors.primaryText },
   modalCancelBtn: { marginTop: 16 },
   patternCard: {
-    backgroundColor: colors.coachPurpleLight, borderRadius: theme.radius.card,
-    padding: 16, marginBottom: spacing.betweenCards,
+    backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card,
+    borderWidth: 1, borderColor: colors.glassStroke,
+    padding: 16, marginBottom: spacing.betweenCards, ...theme.glassShadowSoft,
   },
   patternCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   patternCardTitle: { ...typography.headline, color: colors.coachPurple },
@@ -1043,30 +967,19 @@ const styles = StyleSheet.create({
   patternCardBody: { ...typography.body, color: colors.coachPurple },
   warningBanner: {
     flexDirection: 'row', alignItems: 'center', padding: 14,
+    borderWidth: 1, borderColor: colors.glassStroke,
     borderRadius: theme.radius.card, marginBottom: spacing.betweenCards,
+    ...theme.glassShadowSoft,
   },
   warningDot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
   warningBannerText: { flex: 1 },
   warningBannerHeadline: { ...typography.headline, color: colors.primaryText, marginBottom: 2 },
   warningBannerSubline: { ...typography.caption, color: colors.secondaryText },
-  importOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', zIndex: 999 },
-  importOverlayCard: { backgroundColor: '#fff', borderRadius: theme.radius.card, padding: 32, alignItems: 'center', minWidth: 200, ...theme.cardShadowElevated },
-  importOverlayText: { ...typography.body, color: colors.primaryText, marginTop: 16, textAlign: 'center' },
-  connectHealthCard: { marginBottom: 16 },
-  connectHealthTextBlock: { marginBottom: 14 },
-  connectHealthTitle: { ...typography.title, color: colors.primaryText, marginBottom: 4 },
-  connectHealthSubtitle: { ...typography.secondary, color: colors.secondaryText, lineHeight: 20 },
-  connectHealthBtn: { backgroundColor: colors.accent, borderRadius: theme.radius.button, paddingVertical: 14, alignItems: 'center', marginBottom: 8 },
-  connectHealthBtnText: { ...typography.headline, color: '#FFFFFF' },
-  connectHealthHint: { ...typography.caption, color: colors.secondaryText, textAlign: 'center', lineHeight: 18 },
-  manualDivider: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
-  manualDividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.divider },
-  manualDividerText: { ...typography.caption, color: colors.secondaryText },
   baselineHint: { ...typography.caption, color: colors.secondaryText, marginBottom: 12 },
   readinessSubtitle: { ...typography.secondary, color: colors.primaryText, marginBottom: 10, fontWeight: '500' },
   coachMessageCard: {
     borderLeftWidth: 3, borderLeftColor: colors.accent,
-    backgroundColor: colors.backgroundSecondary, padding: 12, borderRadius: 8,
+    backgroundColor: colors.surfaceMuted, padding: 12, borderRadius: 8,
     marginTop: 12, marginBottom: 12,
   },
   coachMessageTitle: { ...typography.secondary, fontWeight: '600', color: colors.primaryText, marginBottom: 4 },
@@ -1080,7 +993,7 @@ const styles = StyleSheet.create({
   runAnywayLink: { ...typography.caption, color: colors.secondaryText, textAlign: 'center', marginTop: 8 },
   recoveryModalBox: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    backgroundColor: colors.card, borderTopLeftRadius: theme.radius.modal,
+    backgroundColor: colors.surfaceElevated, borderTopLeftRadius: theme.radius.modal,
     borderTopRightRadius: theme.radius.modal, padding: 24, paddingBottom: 40, maxHeight: '90%',
   },
   recoveryModalHandle: { width: 36, height: 4, backgroundColor: colors.divider, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
@@ -1089,7 +1002,7 @@ const styles = StyleSheet.create({
   recoveryMetricLabel: { ...typography.secondary, color: colors.secondaryText, marginBottom: 4 },
   recoveryMetricValue: { ...typography.body, color: colors.primaryText },
   recoveryMetricBaseline: { ...typography.caption, color: colors.secondaryText, marginTop: 2 },
-  recoveryPill: { alignSelf: 'flex-start', backgroundColor: colors.backgroundSecondary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, marginTop: 4 },
+  recoveryPill: { alignSelf: 'flex-start', backgroundColor: colors.surfaceMuted, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, marginTop: 4 },
   recoveryPillText: { ...typography.caption, fontWeight: '600', color: colors.primaryText },
   recoveryDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginVertical: 20 },
   recoveryGaugeWrap: { alignItems: 'center', marginBottom: 8 },
@@ -1102,12 +1015,13 @@ const styles = StyleSheet.create({
   recoveryFactors: { marginTop: 12, marginBottom: 12 },
   recoveryFactorsTitle: { ...typography.secondary, fontWeight: '600', marginBottom: 8, color: colors.primaryText },
   recoveryFactorItem: { ...typography.body, color: colors.primaryText, marginBottom: 4 },
-  tomorrowCard: { backgroundColor: colors.backgroundSecondary, padding: 12, borderRadius: 8, marginBottom: 20 },
+  tomorrowCard: { backgroundColor: colors.surfaceMuted, padding: 12, borderRadius: 8, marginBottom: 20 },
   tomorrowCardText: { ...typography.caption, color: colors.secondaryText },
   whyCard: {
-    backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 16,
+    backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card, padding: 16,
+    borderWidth: 1, borderColor: colors.glassStroke,
     marginBottom: spacing.betweenCards, borderLeftWidth: 3, borderLeftColor: colors.coachPurple,
-    ...theme.cardShadow,
+    ...theme.glassShadowSoft,
   },
   whyHeader: { flexDirection: 'row', alignItems: 'center' },
   whyHeaderTitle: { ...typography.secondary, fontWeight: '600', color: colors.primaryText, flex: 1 },

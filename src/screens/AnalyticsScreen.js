@@ -13,6 +13,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, typography, spacing, theme } from '../theme';
+import { GlassCard } from '../components';
 import { supabase } from '../lib/supabase';
 import { getCoachingSummary, getBottleneckHistory } from '../services/coachingEngine';
 
@@ -161,12 +162,12 @@ export function AnalyticsScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.link} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.linkNeon} />
         }
       >
         {/* RUNNER PROFILE */}
         <View style={styles.section}>
-          <View style={[styles.card, styles.profileCard]}>
+          <GlassCard variant="elevated" style={styles.profileCard}>
             <View style={styles.profileLeft}>
               <Text style={styles.profileName}>{name}</Text>
               {memberSince ? <Text style={styles.profileSince}>Running with Pacelab since {memberSince}</Text> : null}
@@ -181,14 +182,14 @@ export function AnalyticsScreen() {
             ) : (
               <Text style={styles.emptyHint}>Complete a few runs to build your profile</Text>
             )}
-          </View>
+          </GlassCard>
         </View>
 
         {/* AI COACHING INSIGHTS */}
         {coachingSummary?.bottleneck && (
           <View style={styles.section}>
             <Text style={SECTION_TITLE}>AI COACHING INSIGHTS</Text>
-            <View style={[styles.card, styles.coachingCard]}>
+            <GlassCard variant="elevated" style={styles.coachingCard}>
               <View style={styles.coachingHeader}>
                 <View style={styles.coachingHeaderText}>
                   <Text style={styles.coachingDiagnosis}>
@@ -196,16 +197,16 @@ export function AnalyticsScreen() {
                   </Text>
                   <View style={[styles.coachingConfBadge, {
                     backgroundColor: coachingSummary.bottleneck.confidence === 'high'
-                      ? colors.success + '20'
+                      ? colors.neonGreen + '25'
                       : coachingSummary.bottleneck.confidence === 'medium'
-                        ? colors.warning + '20'
+                        ? colors.neonOrange + '25'
                         : colors.secondaryText + '20',
                   }]}>
                     <Text style={[styles.coachingConfText, {
                       color: coachingSummary.bottleneck.confidence === 'high'
-                        ? colors.success
+                        ? colors.neonGreen
                         : coachingSummary.bottleneck.confidence === 'medium'
-                          ? colors.warning
+                          ? colors.neonOrange
                           : colors.secondaryText,
                     }]}>
                       {coachingSummary.bottleneck.confidence} confidence
@@ -250,7 +251,7 @@ export function AnalyticsScreen() {
                   ))}
                 </View>
               )}
-            </View>
+            </GlassCard>
           </View>
         )}
 
@@ -265,9 +266,9 @@ export function AnalyticsScreen() {
               <View style={styles.overviewCard}><Text style={styles.overviewValue}>{stats.longest.toFixed(1)} km</Text><Text style={styles.overviewLabel}>Longest Run</Text></View>
             </View>
           ) : (
-            <View style={[styles.card, styles.emptyCard]}>
+            <GlassCard variant="soft" style={styles.emptyCard}>
               <Text style={styles.emptyCardText}>Complete your first run to see analytics</Text>
-            </View>
+            </GlassCard>
           )}
         </View>
 
@@ -275,7 +276,7 @@ export function AnalyticsScreen() {
         {weeklyData.length > 0 && (
           <View style={styles.section}>
             <Text style={SECTION_TITLE}>WEEKLY DISTANCE</Text>
-            <View style={[styles.card]}>
+            <GlassCard variant="default" style={styles.chartCard}>
               <View style={styles.barChartWrap}>
                 {weeklyData.map((w) => (
                   <View key={w.key} style={styles.barCol}>
@@ -285,7 +286,7 @@ export function AnalyticsScreen() {
                   </View>
                 ))}
               </View>
-            </View>
+            </GlassCard>
           </View>
         )}
 
@@ -293,7 +294,7 @@ export function AnalyticsScreen() {
         {recentRuns.length > 0 && (
           <View style={styles.section}>
             <Text style={SECTION_TITLE}>RECENT RUNS</Text>
-            <View style={[styles.card, { padding: 0, overflow: 'hidden' }]}>
+            <GlassCard variant="default" style={styles.tableCard}>
               <View style={[styles.tableRow, styles.tableHeader]}>
                 <Text style={[styles.tableHeaderText, { flex: 2 }]}>Date</Text>
                 <Text style={styles.tableHeaderText}>Distance</Text>
@@ -312,26 +313,25 @@ export function AnalyticsScreen() {
                   </View>
                 );
               })}
-            </View>
+            </GlassCard>
           </View>
         )}
 
         {/* SLEEP */}
         <View style={styles.section}>
           <Text style={SECTION_TITLE}>SLEEP VS PERFORMANCE</Text>
-          <View style={[styles.card]}>
+          <GlassCard variant="soft">
             <Text style={styles.unlockText}>Connect Apple Health or Garmin to unlock sleep analysis</Text>
-          </View>
+          </GlassCard>
         </View>
 
         {/* INJURY RISK (shown only with data) */}
         {hasData && (
           <View style={styles.section}>
             <Text style={SECTION_TITLE}>INJURY PREVENTION</Text>
-            <TouchableOpacity
-              style={[styles.card]}
+            <GlassCard
+              variant="default"
               onPress={() => setInjuryExpanded((e) => !e)}
-              activeOpacity={0.9}
             >
               <Text style={styles.gaugeLabel}>Keep weekly distance increases under 10-15%</Text>
               {injuryExpanded && (
@@ -342,7 +342,7 @@ export function AnalyticsScreen() {
                 </View>
               )}
               <Text style={styles.tapToExpand}>{injuryExpanded ? 'Tap to collapse' : 'Tap for tips'}</Text>
-            </TouchableOpacity>
+            </GlassCard>
           </View>
         )}
       </ScrollView>
@@ -351,29 +351,31 @@ export function AnalyticsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.surfaceBase },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: PADDING, paddingVertical: 12, marginBottom: 8 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: PADDING, paddingVertical: 14, marginBottom: 10 },
   headerTitle: { ...typography.largeTitle, fontWeight: '700', color: colors.primaryText, letterSpacing: -0.5 },
-  rangePills: { gap: 8 },
-  rangePill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: colors.backgroundSecondary, borderWidth: 1, borderColor: colors.glassBorder },
-  rangePillActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  rangePills: { gap: 8, paddingVertical: 2 },
+  rangePill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: colors.glassFillSoft, borderWidth: 1, borderColor: colors.glassStroke },
+  rangePillActive: { backgroundColor: colors.glassFillStrong, borderColor: colors.accentLight },
   rangePillText: { ...typography.secondary, color: colors.secondaryText, fontWeight: '500' },
-  rangePillTextActive: { ...typography.secondary, color: colors.background, fontWeight: '700' },
+  rangePillTextActive: { ...typography.secondary, color: colors.primaryText, fontWeight: '700' },
   scroll: { paddingHorizontal: PADDING, paddingBottom: 100 },
   section: { marginBottom: 28 },
-  card: { backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 20, borderWidth: 1, borderColor: colors.glassBorder, ...theme.cardShadow },
+  card: { backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card, padding: 20, borderWidth: 1, borderColor: colors.glassStroke, ...theme.glassShadowSoft },
   profileCard: { borderLeftWidth: 4, borderLeftColor: colors.accent },
+  chartCard: {},
+  tableCard: { overflow: 'hidden' },
   profileLeft: { marginBottom: 16 },
   profileName: { ...typography.title, color: colors.primaryText, marginBottom: 4, letterSpacing: -0.3 },
   profileSince: { ...typography.caption, color: colors.tertiaryText },
   profileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  profileStat: { width: (SCREEN_WIDTH - PADDING * 2 - 52) / 2, backgroundColor: colors.backgroundSecondary, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.glassBorder },
+  profileStat: { width: (SCREEN_WIDTH - PADDING * 2 - 52) / 2, backgroundColor: colors.surfaceMuted, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.glassStroke },
   profileStatValue: { ...typography.title, color: colors.primaryText },
   profileStatLabel: { ...typography.caption, color: colors.tertiaryText, marginTop: 2 },
   emptyHint: { ...typography.body, color: colors.secondaryText },
   overviewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  overviewCard: { width: (SCREEN_WIDTH - PADDING * 2 - 12) / 2, backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 18, borderWidth: 1, borderColor: colors.glassBorder, ...theme.cardShadow },
+  overviewCard: { width: (SCREEN_WIDTH - PADDING * 2 - 12) / 2, backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card, padding: 18, borderWidth: 1, borderColor: colors.glassStroke, ...theme.glassShadowSoft },
   overviewValue: { ...typography.title, fontSize: 24, color: colors.primaryText, letterSpacing: -0.5 },
   overviewLabel: { ...typography.caption, color: colors.tertiaryText, marginTop: 4 },
   emptyCard: { alignItems: 'center', paddingVertical: 40 },
@@ -381,18 +383,18 @@ const styles = StyleSheet.create({
   barChartWrap: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 140 },
   barCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
   barValue: { ...typography.caption, fontSize: 10, color: colors.tertiaryText, marginBottom: 4 },
-  bar: { width: 16, backgroundColor: colors.link, borderRadius: 4, minHeight: 4, opacity: 0.9 },
+  bar: { width: 16, backgroundColor: colors.neonCyan, borderRadius: 4, minHeight: 4, opacity: 0.95 },
   barLabel: { ...typography.caption, fontSize: 10, color: colors.tertiaryText, marginTop: 4 },
   tableRow: { flexDirection: 'row', paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider },
-  tableHeader: { backgroundColor: colors.backgroundSecondary },
+  tableHeader: { backgroundColor: colors.surfaceMuted },
   tableHeaderText: { ...typography.caption, fontWeight: '700', color: colors.tertiaryText, flex: 1, letterSpacing: 0.5 },
-  tableRowAlt: { backgroundColor: 'rgba(255,255,255,0.02)' },
+  tableRowAlt: { backgroundColor: 'rgba(255,255,255,0.06)' },
   tableCell: { ...typography.secondary, color: colors.primaryText, flex: 1 },
   unlockText: { ...typography.body, color: colors.secondaryText, textAlign: 'center', paddingVertical: 24 },
   gaugeLabel: { ...typography.body, color: colors.primaryText },
   injuryExpand: { marginTop: 12, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.divider },
   injuryExpandText: { ...typography.caption, color: colors.secondaryText, lineHeight: 20 },
-  tapToExpand: { ...typography.caption, color: colors.link, marginTop: 12 },
+  tapToExpand: { ...typography.caption, color: colors.linkNeon, marginTop: 12 },
   coachingCard: { borderLeftWidth: 4, borderLeftColor: colors.coachPurple },
   coachingHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
   coachingHeaderText: { flex: 1 },
@@ -400,7 +402,7 @@ const styles = StyleSheet.create({
   coachingConfBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   coachingConfText: { ...typography.caption, fontWeight: '700' },
   coachingEvidence: { ...typography.body, color: colors.secondaryText, marginBottom: 16, lineHeight: 22 },
-  coachingPhilosophy: { backgroundColor: colors.backgroundSecondary, borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: colors.glassBorder },
+  coachingPhilosophy: { backgroundColor: colors.surfaceMuted, borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: colors.glassStroke },
   coachingPhLabel: { ...typography.caption, color: colors.tertiaryText, marginBottom: 4, fontWeight: '600', letterSpacing: 0.5 },
   coachingPhValue: { ...typography.secondary, fontWeight: '700', color: colors.primaryText, marginBottom: 4 },
   coachingPhMetric: { ...typography.caption, color: colors.coachPurple },

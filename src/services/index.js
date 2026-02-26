@@ -10,6 +10,7 @@ export {
   updateLastSyncedAt,
   mockAppleHealthData,
   calculateAppleReadiness,
+  fillSampleData,
 } from './appleHealth';
 
 export {

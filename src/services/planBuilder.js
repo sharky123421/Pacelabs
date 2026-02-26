@@ -279,7 +279,7 @@ function buildCoachingAnalysisBlock(coachingAnalysis) {
 }
 
 /**
- * Get personalized opening message and first chips from Groq.
+ * Get personalized opening messages (weaknesses + zones/philosophy) and first chips from Groq.
  */
 export async function getPlanBuilderOpening(userData, coachingAnalysis = null) {
   const analysisBlock = buildCoachingAnalysisBlock(coachingAnalysis);
@@ -291,21 +291,32 @@ ATHLETE DATA:
 - Name: ${userData.name}
 - Total runs in history: ${userData.totalRuns}
 - Current weekly volume (4-week avg): ${userData.weeklyVolume} km
-- Threshold pace: ${userData.thresholdPace} /km
 - VO2 max estimate: ${userData.vo2max}
+- Lactate threshold pace: ${userData.thresholdPace} /km
+- Aerobic threshold pace: ${userData.aetPace || '—'} /km
+- Easy pace zone: ${userData.easyMin || '—'}–${userData.easyMax || '—'} /km
+- Recovery pace: ${userData.recoveryPace || '—'} /km
 ${hasAnalysis ? `\n${analysisBlock}\n` : ''}
-Your task:${hasAnalysis
-  ? ` Start by briefly explaining what you found in their data (1-2 sentences about their primary bottleneck and what it means). Then recommend a training approach based on the analysis. Then ask: "What's your main goal right now?"`
-  : ` Write ONE short, warm opening message (2-4 sentences) that references their run count and weekly volume, then ask: "What's your main goal right now?"`}
+Your task — return TWO texts in one JSON object:
 
-Then provide suggestion chips as a JSON array. Return ONLY a valid JSON object in this exact format (no markdown, no code block):
+1) "message" (weaknesses only): ${hasAnalysis
+  ? `Based on the analysis above, write ONE short message (2–4 sentences) that clearly explains this athlete's main weaknesses, limitations, and risk factors — especially their primary bottleneck and any important secondary signals. Focus only on what is holding them back. Do NOT talk about strengths, do NOT recommend any training approach, and do NOT ask about their goals.`
+  : `Based only on the athlete data above, write ONE short message (2–4 sentences) that explains what seems to be limiting their performance right now (e.g. low weekly volume, inconsistent training, high injury risk). Focus only on weaknesses. Do NOT recommend training or ask about goals.`}
+
+2) "zonesAndPhilosophy": Write a second message that (a) walks the athlete through their pace zones and thresholds using the ATHLETE DATA above — lactate threshold, aerobic threshold, easy zone, recovery — in a clear, brief way; then (b) state which training philosophy you recommend for them and why. ${hasAnalysis
+  ? 'Use the training philosophy from the COACHING ENGINE ANALYSIS above; explain it in plain language and why it fits this athlete.'
+  : 'Recommend a philosophy (e.g. base-first, 80/20, polarized) based on their volume and level, and give a short reason.'} Do NOT ask about their goals in this message.
+
+Then provide suggestion chips. Return ONLY a valid JSON object in this exact format (no markdown, no code block):
 {
-  "message": "Your opening message here...",
+  "message": "Your weaknesses-only message here...",
+  "zonesAndPhilosophy": "Your zones + threshold + recommended philosophy and why here...",
   "chips": ["Run a 5K", "Run a 10K", "Half Marathon", "Marathon", "Ultra", "Get faster", "Run more consistently"],
   "phase": "question"
 }`;
 
-  return callGroqPlanBuilder(prompt, true);
+  const result = await callGroqPlanBuilder(prompt, true);
+  return result;
 }
 
 /**
@@ -331,13 +342,15 @@ ${historyText}
 User just said: "${userMessage}"
 
 Rules:
-1. Ask exactly ONE follow-up question per turn, or if you have enough information, output the final summary (phase: "summary") and include userAnswers.${hasAnalysis ? '\n1b. Your recommendations MUST be informed by the coaching analysis above. Reference bottlenecks and training philosophy when relevant.' : ''}
+1. Ask exactly ONE follow-up question per turn, or if you have enough information, output the final summary (phase: "summary") and include userAnswers.
+1a. Keep each response concise: at most 1–3 short sentences plus chips where helpful. Avoid repeating information you've already given. Where a yes/no answer makes sense, prefer chips like ["Yes","No"].${hasAnalysis ? '\n1b. Your recommendations MUST be informed by the coaching analysis above. Reference bottlenecks and training philosophy when relevant.' : ''}
 2. For "Which days" question: set "showDatePicker": false and provide chips like ["Mon","Tue",...,"Sun"] so they can multi-select.
 3. For race date: if they want a specific date, set "showDatePicker": true.
-4. When you have: goal, (optional) race date, goal time, days per week, which days, long run day, morning/evening, volume preference, injuries, session preferences, track access — then output phase "summary" with a friendly recap and set "userAnswers" to an object with keys: goal, raceDate, goalTime, daysPerWeek, trainingDays (array of day names), longRunDay, timeOfDay, volumePreference, injuries, sessionPreferences (array), trackAccess.
+4. When you have: goal, (optional) race date, goal time, days per week, which days, long run day, volume preference, injuries, track access — then output phase "summary" with a friendly recap and set "userAnswers" to an object with keys: goal, raceDate, goalTime, daysPerWeek, trainingDays (array of day names), longRunDay, volumePreference, injuries, trackAccess.
 5. Return ONLY valid JSON: { "message": "...", "chips": [], "showDatePicker": false, "phase": "question"|"summary", "userAnswers": {} when phase is summary }
 6. For summary message, format the recap clearly and end with "Shall I generate your plan?"
-7. If user says they have a specific race date, ask for the date and set showDatePicker: true in the next response.`;
+7. If user says they have a specific race date, ask for the date and set showDatePicker: true in the next response.
+8. Do not ask which interval types the athlete prefers, and do not ask what time of day they prefer to train. You will later design the interval and quality session structure yourself based on their goal, level, and volume.`;
 
   return callGroqPlanBuilder(prompt, true);
 }
@@ -352,6 +365,13 @@ export async function generatePlan(userAnswers, userData) {
       0,
       Math.ceil((new Date(answers.raceDate) - new Date()) / (7 * 24 * 60 * 60 * 1000))
     );
+  }
+
+  if (answers.timeOfDay == null) {
+    answers.timeOfDay = 'flexible';
+  }
+  if (!answers.sessionPreferences || !Array.isArray(answers.sessionPreferences) || answers.sessionPreferences.length === 0) {
+    answers.sessionPreferences = ['tempo', 'intervals', 'long', 'easy'];
   }
 
   const prompt = `You are an elite running coach creating a highly personalized training plan. You have complete data on this athlete.
@@ -390,10 +410,10 @@ Goal time: ${answers.goalTime ?? '—'}
 Training days per week: ${answers.daysPerWeek ?? '—'}
 Training days: ${(answers.trainingDays || []).join(', ')}
 Long run day: ${answers.longRunDay ?? '—'}
-Preferred time: ${answers.timeOfDay ?? '—'}
+Preferred time window (inferred): ${answers.timeOfDay ?? 'flexible'}
 Volume preference: ${answers.volumePreference ?? '—'}
 Current issues: ${answers.injuries ?? '—'}
-Preferred session types: ${(answers.sessionPreferences || []).join(', ')}
+Session type preferences (auto-selected): ${(answers.sessionPreferences || []).join(', ')}
 Track/treadmill access: ${answers.trackAccess ?? '—'}
 
 PLAN REQUIREMENTS:
@@ -402,10 +422,11 @@ PLAN REQUIREMENTS:
 3. Every 4th week = recovery week (reduce volume 25–30%).
 4. Include proper taper (2–3 weeks before race if race date set).
 5. 75–80% easy/aerobic, 20–25% quality sessions.
-6. Long run max = 38% of weekly volume.
-7. Injury consideration: ${answers.injuries ?? 'None'}.
-8. Only schedule runs on: ${(answers.trainingDays || []).join(', ') || 'flexible'}.
-9. Long run always on: ${answers.longRunDay ?? 'Sunday'}.
+6. Design interval and quality sessions using the most effective structure for this athlete's goal and level (you decide the mix of tempo, intervals, hills, etc.; the athlete did not choose this).
+7. Long run max = 38% of weekly volume.
+8. Injury consideration: ${answers.injuries ?? 'None'}.
+9. Only schedule runs on: ${(answers.trainingDays || []).join(', ') || 'flexible'}.
+10. Long run always on: ${answers.longRunDay ?? 'Sunday'}.
 
 SESSION TYPES: easy, recovery, tempo, intervals, long, progression, race_pace, hills, rest.
 Pace zones: easy ${userData.easyMin}–${userData.easyMax} /km, threshold ${userData.thresholdPace} /km, recovery ${userData.recoveryPace} /km.

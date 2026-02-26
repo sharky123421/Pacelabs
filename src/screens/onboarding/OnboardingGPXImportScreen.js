@@ -6,13 +6,14 @@ import {
   SafeAreaView,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
+  Alert,
 } from 'react-native';
-import * as DocumentPicker from 'expo-document-picker';
+// DocumentPicker, FileSystem, and JSZip are dynamically imported in handlers below
 import { colors, typography, spacing, theme } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { setOnboardingStep, ONBOARDING_STEPS } from '../../lib/onboarding';
 import { PrimaryButton } from '../../components';
+import { importGpxFiles, importGpxFromXmlStrings } from '../../services/gpxImport';
 
 const STEPS = [
   'Open Garmin Connect app or connect.garmin.com',
@@ -24,43 +25,77 @@ const STEPS = [
 export function OnboardingGPXImportScreen({ navigation }) {
   const { user } = useAuth();
   const [processing, setProcessing] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [progressLabel, setProgressLabel] = useState('');
 
   const handleSelectFiles = async () => {
+    if (!user?.id) return;
     try {
+      const DocumentPicker = await import('expo-document-picker');
       const result = await DocumentPicker.getDocumentAsync({
         type: 'application/gpx+xml',
         copyToCacheDirectory: true,
         multiple: true,
       });
       if (result.canceled) return;
+      const uris = (result.assets || []).map((a) => a.uri);
+      if (uris.length === 0) return;
       setProcessing(true);
-      setProgress({ current: 0, total: result.assets?.length ?? 0 });
-      for (let i = 0; i < (result.assets?.length ?? 0); i++) {
-        setProgress({ current: i + 1, total: result.assets.length });
-        await new Promise((r) => setTimeout(r, 100));
-      }
+      setProgressLabel('Importing...');
+      const { runsInserted, runsSkipped, errors } = await importGpxFiles(uris, user.id, setProgressLabel);
       setProcessing(false);
+      if (errors.length > 0) {
+        Alert.alert('Import finished with issues', `${runsInserted} runs imported, ${runsSkipped} skipped. ${errors.join(' ')}`);
+      }
       goToAIAnalysis();
     } catch (e) {
       setProcessing(false);
+      Alert.alert('Import failed', e?.message || 'Could not import GPX files.');
     }
   };
 
   const handleSelectZip = async () => {
+    if (!user?.id) return;
     try {
+      const [DocumentPicker, FileSystem, { default: JSZip }] = await Promise.all([
+        import('expo-document-picker'),
+        import('expo-file-system/legacy'),
+        import('jszip'),
+      ]);
       const result = await DocumentPicker.getDocumentAsync({
         type: 'application/zip',
         copyToCacheDirectory: true,
       });
       if (result.canceled) return;
+      const uri = result.assets?.[0]?.uri;
+      if (!uri) return;
       setProcessing(true);
-      setProgress({ current: 1, total: 1 });
-      await new Promise((r) => setTimeout(r, 800));
+      setProgressLabel('Reading ZIP...');
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+      const zip = await JSZip.loadAsync(base64, { base64: true });
+      const gpxNames = Object.keys(zip.files).filter((n) => n.toLowerCase().endsWith('.gpx'));
+      const xmlEntries = [];
+      for (let i = 0; i < gpxNames.length; i++) {
+        setProgressLabel(`Extracting ${i + 1}/${gpxNames.length}...`);
+        const file = zip.files[gpxNames[i]];
+        if (file.dir) continue;
+        const xml = await file.async('string');
+        xmlEntries.push({ xml, fileIndex: i });
+      }
+      if (xmlEntries.length === 0) {
+        setProcessing(false);
+        Alert.alert('No GPX in ZIP', 'The ZIP file does not contain any .gpx files.');
+        return;
+      }
+      setProgressLabel('Importing runs...');
+      const { runsInserted, runsSkipped, errors } = await importGpxFromXmlStrings(xmlEntries, user.id, setProgressLabel);
       setProcessing(false);
+      if (errors.length > 0) {
+        Alert.alert('Import finished with issues', `${runsInserted} runs imported, ${runsSkipped} skipped. ${errors.join(' ')}`);
+      }
       goToAIAnalysis();
     } catch (e) {
       setProcessing(false);
+      Alert.alert('Import failed', e?.message || 'Could not import ZIP.');
     }
   };
 
@@ -96,10 +131,10 @@ export function OnboardingGPXImportScreen({ navigation }) {
         {processing ? (
           <View style={styles.progressWrap}>
             <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${progress.total ? (progress.current / progress.total) * 100 : 0}%` }]} />
+              <View style={[styles.progressFill, { width: '100%' }]} />
             </View>
             <Text style={styles.progressLabel}>
-              Processing {progress.current} of {progress.total} files...
+              {progressLabel || 'Processing...'}
             </Text>
           </View>
         ) : (

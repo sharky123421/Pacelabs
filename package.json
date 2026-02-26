@@ -9,6 +9,7 @@
     "start": "expo start --dev-client",
     "start:go": "CI=false expo start --go",
     "start:go:lan": "bash ./scripts/start-expo-go.sh",
+    "start:go:lan:no-watchman": "EXPO_NO_WATCHMAN=1 bash ./scripts/start-expo-go.sh",
     "stop:expo": "bash ./scripts/stop-expo.sh",
     "start:go:tunnel": "CI=false expo start --go --tunnel",
     "start:go:lan:clear": "CI=false REACT_NATIVE_PACKAGER_HOSTNAME=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null) expo start --go --clear",
@@ -34,9 +35,11 @@
     "expo": "~54.0.33",
     "expo-apple-authentication": "~7.0.1",
     "expo-auth-session": "~6.0.2",
+    "expo-blur": "~15.0.8",
     "expo-device": "~7.0.0",
     "expo-document-picker": "~13.0.2",
     "expo-file-system": "~19.0.21",
+    "expo-haptics": "~15.0.8",
     "expo-notifications": "~0.29.0",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "~14.0.2",
@@ -55,6 +58,7 @@
     "react-native-webview": "^13.16.0"
   },
   "devDependencies": {
+    "dotenv": "^16.4.5",
     "@expo/ngrok": "^4.1.0",
     "@types/babel__core": "^7.20.5",
     "@types/babel__generator": "^7.27.0",

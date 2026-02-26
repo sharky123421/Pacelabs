@@ -2,9 +2,10 @@
  * Pacelab design system — spacing & layout
  */
 export const spacing = {
-  screenPaddingHorizontal: 20,
-  betweenCards: 16,
+  screenPaddingHorizontal: 22,
+  betweenCards: 18,
   betweenRelated: 8,
-  betweenSections: 28,
-  touchablePadding: 16,
+  betweenSections: 30,
+  touchablePadding: 17,
+  controlInset: 14,
 };

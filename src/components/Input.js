@@ -20,11 +20,13 @@ export function Input({
   return (
     <View style={styles.wrapper}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
-      <View style={[
-        styles.inputContainer,
-        focused && styles.inputFocused,
-        error && styles.inputError,
-      ]}>
+      <View style={styles.inputOuter}>
+        <View style={styles.inputHighlight} pointerEvents="none" />
+        <View style={[
+          styles.inputContainer,
+          focused && styles.inputFocused,
+          error && styles.inputError,
+        ]}>
         <TextInput
           style={styles.input}
           value={value}
@@ -48,6 +50,7 @@ export function Input({
             <Text style={styles.toggleText}>{showPassword ? 'Hide' : 'Show'}</Text>
           </TouchableOpacity>
         )}
+        </View>
       </View>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
@@ -66,17 +69,31 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
+  inputOuter: {
+    borderRadius: theme.radius.input,
+    overflow: 'hidden',
+  },
+  inputHighlight: {
+    position: 'absolute',
+    left: 1,
+    right: 1,
+    top: 1,
+    height: '48%',
+    borderRadius: theme.radius.input,
+    backgroundColor: colors.glassHighlight,
+  },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.glassSurface,
+    backgroundColor: colors.glassFillSoft,
     borderRadius: theme.radius.input,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
+    borderColor: colors.glassStroke,
+    ...theme.glassShadowSoft,
   },
   inputFocused: {
-    borderColor: colors.accent,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.accentLight,
+    backgroundColor: colors.glassFillStrong,
   },
   inputError: {
     borderColor: colors.destructive,

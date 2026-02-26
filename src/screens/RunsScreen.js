@@ -1,4 +1,4 @@
-import React, { useState, useCallback, memo } from 'react';
+import React, { useState, useCallback, useEffect, memo } from 'react';
 import {
   View,
   Text,
@@ -6,18 +6,19 @@ import {
   SafeAreaView,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   TextInput,
   Alert,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { Calendar } from 'react-native-calendars';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { colors, typography, spacing, theme } from '../theme';
-import { SecondaryButton, SkeletonRunList } from '../components';
+import { SecondaryButton, SkeletonRunList, GlassCard } from '../components';
 
-const SESSION_COLORS = { easy: colors.success, tempo: colors.warning, intervals: colors.destructive, long: colors.accent, race: colors.warning };
+const SESSION_COLORS = { easy: colors.neonGreen, tempo: colors.neonOrange, intervals: colors.neonRed, long: colors.neonCyan, race: colors.neonMagenta };
 const FILTERS = ['All', 'Easy', 'Tempo', 'Intervals', 'Long Run', 'Race', 'This week', 'This month', 'Strava', 'Garmin', 'Apple Watch'];
 
 const RunCard = memo(function RunCard({ run, onPress, sessionColors }) {
@@ -116,6 +117,15 @@ export function RunsScreen({ navigation }) {
   const [activeFilter, setActiveFilter] = useState('All');
   const [refreshing, setRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState('list'); // 'list' | 'calendar'
+  const [CalendarComponent, setCalendarComponent] = useState(null);
+
+  useEffect(() => {
+    if (viewMode === 'calendar' && !CalendarComponent) {
+      import('react-native-calendars').then(mod => {
+        setCalendarComponent(() => mod.Calendar);
+      });
+    }
+  }, [viewMode, CalendarComponent]);
 
   const loadRuns = useCallback(async () => {
     setLoading(true);
@@ -230,7 +240,7 @@ export function RunsScreen({ navigation }) {
     const today = new Date().toISOString().split('T')[0];
     if (!marks[today]) marks[today] = {};
     marks[today].selected = true;
-    marks[today].selectedColor = colors.backgroundSecondary;
+    marks[today].selectedColor = colors.glassFillStrong;
     return marks;
   }, [runs]);
 
@@ -330,27 +340,29 @@ export function RunsScreen({ navigation }) {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await loadRuns(); setRefreshing(false); }} />
+          <RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await loadRuns(); setRefreshing(false); }} tintColor={colors.linkNeon} />
         }
       >
-        <View style={styles.statsCard}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{runStats.totalRuns}</Text>
-            <Text style={styles.statLabel}>Runs</Text>
+        <GlassCard variant="default" style={styles.statsCardWrap}>
+          <View style={styles.statsCard}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{runStats.totalRuns}</Text>
+              <Text style={styles.statLabel}>Runs</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{runStats.totalDistance.toFixed(1)} km</Text>
+              <Text style={styles.statLabel}>Distance</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{runStats.totalTime}</Text>
+              <Text style={styles.statLabel}>Time</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{runStats.longest.toFixed(1)} km</Text>
+              <Text style={styles.statLabel}>Longest</Text>
+            </View>
           </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{runStats.totalDistance.toFixed(1)} km</Text>
-            <Text style={styles.statLabel}>Distance</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{runStats.totalTime}</Text>
-            <Text style={styles.statLabel}>Time</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{runStats.longest.toFixed(1)} km</Text>
-            <Text style={styles.statLabel}>Longest</Text>
-          </View>
-        </View>
+        </GlassCard>
 
         <View style={styles.importRow}>
           <TouchableOpacity style={styles.importBtn} onPress={() => navigation.getParent()?.getParent()?.navigate('OnboardingGPXImport')}><Text style={styles.importBtnText}>+ Import GPX</Text></TouchableOpacity>
@@ -359,7 +371,10 @@ export function RunsScreen({ navigation }) {
 
         {viewMode === 'calendar' ? (
           <View style={styles.calendarContainer}>
-            <Calendar
+            {!CalendarComponent ? (
+              <ActivityIndicator style={{ padding: 40 }} />
+            ) : (
+            <CalendarComponent
               markedDates={markedDates}
               onDayPress={(day) => {
                 const dayRuns = runs.filter(r => r.started_at && r.started_at.startsWith(day.dateString));
@@ -371,17 +386,17 @@ export function RunsScreen({ navigation }) {
                 }
               }}
               theme={{
-                backgroundColor: colors.background,
-                calendarBackground: colors.card,
+                backgroundColor: colors.surfaceBase,
+                calendarBackground: colors.surfaceElevated,
                 textSectionTitleColor: colors.tertiaryText,
-                selectedDayBackgroundColor: colors.backgroundSecondary,
+                selectedDayBackgroundColor: colors.glassFillStrong,
                 selectedDayTextColor: colors.primaryText,
                 todayTextColor: colors.primaryText,
                 dayTextColor: colors.primaryText,
                 textDisabledColor: colors.divider,
                 dotColor: colors.accent,
                 selectedDotColor: colors.accent,
-                arrowColor: colors.link,
+                arrowColor: colors.linkNeon,
                 monthTextColor: colors.primaryText,
                 indicatorColor: 'white',
                 textDayFontFamily: typography.body.fontFamily,
@@ -393,6 +408,7 @@ export function RunsScreen({ navigation }) {
               }}
               style={styles.calendarTheme}
             />
+            )}
           </View>
         ) : (
           <>
@@ -429,40 +445,55 @@ export function RunsScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.surfaceBase },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.screenPaddingHorizontal, paddingVertical: 12 },
   headerTitle: { ...typography.largeTitle, color: colors.primaryText, letterSpacing: -0.5 },
   headerIcons: { flexDirection: 'row', gap: 8 },
-  iconBtn: { padding: 8 },
+  iconBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: theme.radius.pill,
+    backgroundColor: colors.glassFillSoft,
+    borderWidth: 1,
+    borderColor: colors.glassStroke,
+  },
   iconText: { fontSize: 20, color: colors.primaryText },
   searchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.screenPaddingHorizontal, paddingBottom: 12, gap: 12 },
-  searchInput: { flex: 1, backgroundColor: colors.backgroundSecondary, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, ...typography.body, color: colors.primaryText, borderWidth: 1, borderColor: colors.glassBorder },
-  cancelText: { ...typography.body, color: colors.link },
+  searchInput: { flex: 1, backgroundColor: colors.surfaceMuted, borderRadius: theme.radius.input, paddingHorizontal: 14, paddingVertical: 12, ...typography.body, color: colors.primaryText, borderWidth: 1, borderColor: colors.glassStroke },
+  cancelText: { ...typography.body, color: colors.linkNeon },
   filterScroll: { maxHeight: 44, marginBottom: 12 },
   filterContent: { paddingHorizontal: spacing.screenPaddingHorizontal, gap: 8, paddingRight: 24 },
-  filterPill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: colors.backgroundSecondary, borderWidth: 1, borderColor: colors.glassBorder },
-  filterPillActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  filterPill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: colors.glassFillSoft, borderWidth: 1, borderColor: colors.glassStroke },
+  filterPillActive: { backgroundColor: colors.glassFillStrong, borderColor: colors.neonCyanMuted },
   filterPillText: { ...typography.secondary, color: colors.secondaryText, fontWeight: '500' },
-  filterPillTextActive: { ...typography.secondary, color: colors.background, fontWeight: '700' },
+  filterPillTextActive: { ...typography.secondary, color: colors.primaryText, fontWeight: '700' },
   scroll: { paddingHorizontal: spacing.screenPaddingHorizontal, paddingBottom: 100 },
-  statsCard: { flexDirection: 'row', backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 20, marginBottom: 14, borderWidth: 1, borderColor: colors.glassBorder, ...theme.cardShadow },
+  statsCardWrap: {},
+  statsCard: { flexDirection: 'row' },
   statItem: { flex: 1, alignItems: 'center' },
   statValue: { ...typography.title, color: colors.primaryText, marginBottom: 4, letterSpacing: -0.3 },
   statLabel: { ...typography.caption, color: colors.tertiaryText },
   importRow: { flexDirection: 'row', gap: 12, marginBottom: 20 },
-  importBtn: { paddingVertical: 10, paddingHorizontal: 14 },
-  importBtnText: { ...typography.secondary, color: colors.link },
+  importBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius.pill,
+    backgroundColor: colors.glassFillSoft,
+    borderWidth: 1,
+    borderColor: colors.glassStroke,
+  },
+  importBtnText: { ...typography.secondary, color: colors.linkNeon },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   sectionTitle: { ...typography.caption, color: colors.tertiaryText, letterSpacing: 1, fontWeight: '600' },
   chevron: { ...typography.caption, color: colors.tertiaryText },
   pbScroll: { gap: 12, marginBottom: 24 },
-  pbCard: { width: 100, backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 14, borderWidth: 1, borderColor: colors.glassBorder, ...theme.cardShadow },
+  pbCard: { width: 100, backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card, padding: 14, borderWidth: 1, borderColor: colors.glassStroke, ...theme.glassShadowSoft },
   pbLabel: { ...typography.caption, color: colors.tertiaryText, marginBottom: 4 },
   pbTime: { ...typography.title, color: colors.primaryText },
   pbDate: { ...typography.caption, color: colors.tertiaryText, marginTop: 4 },
   monthSection: { marginBottom: 24 },
   monthHeader: { ...typography.caption, color: colors.tertiaryText, letterSpacing: 1, marginBottom: 12, fontWeight: '600' },
-  runCard: { backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 18, marginBottom: 12, borderWidth: 1, borderColor: colors.glassBorder, ...theme.cardShadow },
+  runCard: { backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card, padding: 18, marginBottom: 12, borderWidth: 1, borderColor: colors.glassStroke, ...theme.glassShadowSoft },
   runCardLeft: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   runDot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
   runDate: { ...typography.secondary, fontWeight: '700', color: colors.primaryText },
@@ -471,23 +502,23 @@ const styles = StyleSheet.create({
   runDistance: { ...typography.title, fontSize: 22, color: colors.primaryText, letterSpacing: -0.3 },
   runMeta: { ...typography.caption, color: colors.secondaryText },
   runDuration: { ...typography.caption, color: colors.secondaryText, marginTop: 2 },
-  mapThumb: { position: 'absolute', right: 16, top: 16, width: 64, height: 64, borderRadius: 10, backgroundColor: colors.backgroundSecondary, borderWidth: 1, borderColor: colors.glassBorder },
+  mapThumb: { position: 'absolute', right: 16, top: 16, width: 64, height: 64, borderRadius: 10, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.glassStroke },
   runAiLine: { ...typography.caption, fontStyle: 'italic', color: colors.tertiaryText, marginTop: 4 },
   runSourceRow: { marginTop: 8 },
-  sourceChip: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: colors.backgroundSecondary, borderWidth: 1, borderColor: colors.glassBorder },
+  sourceChip: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.glassStroke },
   sourceChipText: { ...typography.caption, fontSize: 10, color: colors.tertiaryText, fontWeight: '600', letterSpacing: 0.5 },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, paddingTop: 80 },
-  emptyLogo: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.backgroundSecondary, alignItems: 'center', justifyContent: 'center', marginBottom: 24, borderWidth: 1, borderColor: colors.glassBorder },
+  emptyLogo: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center', marginBottom: 24, borderWidth: 1, borderColor: colors.glassStroke },
   emptyLogoText: { fontSize: 36, fontWeight: '700', color: colors.primaryText },
   emptyTitle: { ...typography.title, color: colors.primaryText, marginBottom: 8 },
   emptySubtitle: { ...typography.body, color: colors.secondaryText, textAlign: 'center', marginBottom: 24 },
   emptyBtn: { marginBottom: 12 },
   viewToggleContainer: { paddingHorizontal: spacing.screenPaddingHorizontal, marginBottom: 16 },
-  viewToggle: { flexDirection: 'row', backgroundColor: colors.backgroundSecondary, borderRadius: 12, padding: 4, borderWidth: 1, borderColor: colors.glassBorder },
+  viewToggle: { flexDirection: 'row', backgroundColor: colors.glassFillSoft, borderRadius: 12, padding: 4, borderWidth: 1, borderColor: colors.glassStroke },
   toggleBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
-  toggleBtnActive: { backgroundColor: colors.card, ...theme.cardShadow },
+  toggleBtnActive: { backgroundColor: colors.glassFillStrong, ...theme.glassShadowSoft },
   toggleText: { ...typography.secondary, color: colors.tertiaryText, fontWeight: '500' },
   toggleTextActive: { color: colors.primaryText, fontWeight: '700' },
-  calendarContainer: { borderRadius: theme.radius.card, overflow: 'hidden', borderWidth: 1, borderColor: colors.glassBorder, ...theme.cardShadow, marginBottom: 24 },
+  calendarContainer: { borderRadius: theme.radius.card, overflow: 'hidden', borderWidth: 1, borderColor: colors.glassStroke, ...theme.glassShadowSoft, marginBottom: 24 },
   calendarTheme: { borderRadius: theme.radius.card, paddingBottom: 10 },
 });

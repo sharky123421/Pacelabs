@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
   fitnessRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   fitnessLabel: { ...typography.body, color: colors.primaryText },
   fitnessNow: { ...typography.title, color: colors.primaryText },
-  whatLink: { ...typography.secondary, color: colors.link, marginTop: 8 },
+  whatLink: { ...typography.secondary, color: colors.linkNeon, marginTop: 8 },
   encourageCard: { backgroundColor: colors.beginnerGreenLight, borderRadius: theme.radius.card, padding: 20 },
   encourageText: { ...typography.body, fontSize: 18, color: colors.primaryText, textAlign: 'center' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 },

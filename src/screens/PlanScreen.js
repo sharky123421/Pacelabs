@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, typography, spacing, theme } from '../theme';
-import { PrimaryButton, SecondaryButton } from '../components';
+import { PrimaryButton, SecondaryButton, GlassCard } from '../components';
 import { getActivePlan, getPlanSessions, fetchPlanBuilderUserData } from '../services/planBuilder';
 import { useAuth } from '../contexts/AuthContext';
 import { useRunnerMode } from '../contexts/RunnerModeContext';
@@ -27,15 +27,15 @@ import {
 const PADDING = spacing.screenPaddingHorizontal;
 
 const SESSION_COLORS = {
-  easy: colors.sessionEasy ?? '#34C759',
-  tempo: colors.sessionTempo ?? '#FF9500',
-  intervals: colors.sessionIntervals ?? '#FF3B30',
-  long: colors.sessionLong ?? '#007AFF',
-  race: colors.sessionRace ?? '#AF52DE',
+  easy: colors.neonGreen,
+  tempo: colors.neonOrange,
+  intervals: colors.neonRed,
+  long: colors.neonCyan,
+  race: colors.neonMagenta,
   rest: colors.sessionRest ?? '#8E8E93',
-  recovery: colors.sessionEasy ?? '#34C759',
-  progression: colors.sessionTempo ?? '#FF9500',
-  hills: colors.sessionIntervals ?? '#FF3B30',
+  recovery: colors.neonGreen,
+  progression: colors.neonOrange,
+  hills: colors.neonRed,
 };
 
 const ANALYSIS_STEPS = [
@@ -134,7 +134,7 @@ const genStyles = StyleSheet.create({
   steps: { width: '100%', gap: 16 },
   stepRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   stepDot: {
-    width: 28, height: 28, borderRadius: 14, backgroundColor: colors.backgroundSecondary,
+    width: 28, height: 28, borderRadius: 14, backgroundColor: colors.surfaceMuted,
     alignItems: 'center', justifyContent: 'center',
   },
   stepDotDone: { backgroundColor: colors.success },
@@ -338,7 +338,7 @@ export function PlanScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* PLAN OVERVIEW */}
-        <View style={styles.overviewCard}>
+        <GlassCard variant="elevated" style={styles.overviewCard}>
           <Text style={styles.planName}>{plan.plan_name || 'AI Training Plan'}</Text>
           {plan.coach_summary ? (
             <Text style={styles.coachQuote} numberOfLines={3}>"{plan.coach_summary}"</Text>
@@ -359,7 +359,7 @@ export function PlanScreen({ navigation }) {
               </View>
             )}
             <View style={styles.stat}>
-              <Text style={[styles.statValue, { color: colors.accent }]}>
+              <Text style={[styles.statValue, { color: colors.neonCyan }]}>
                 {(plan.phase || 'Base').toUpperCase()}
               </Text>
               <Text style={styles.statLabel}>phase</Text>
@@ -368,11 +368,11 @@ export function PlanScreen({ navigation }) {
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${Math.min(100, weekProgress * 100)}%` }]} />
           </View>
-        </View>
+        </GlassCard>
 
         {/* COACHING FOCUS */}
         {coachingSummary?.bottleneck && (
-          <View style={styles.focusCard}>
+          <GlassCard variant="default" style={styles.focusCard}>
             <View style={styles.focusHeader}>
               <Text style={styles.focusTitle}>Coaching Focus</Text>
             </View>
@@ -385,15 +385,15 @@ export function PlanScreen({ navigation }) {
                 </Text>
               </View>
             )}
-          </View>
+          </GlassCard>
         )}
 
         {/* THIS WEEK'S SESSIONS */}
         <Text style={styles.sectionTitle}>THIS WEEK</Text>
         {thisWeekSessions.length === 0 ? (
-          <View style={styles.noSessionsCard}>
+          <GlassCard variant="soft" style={styles.noSessionsCard}>
             <Text style={styles.noSessionsText}>No sessions planned for this week</Text>
-          </View>
+          </GlassCard>
         ) : (
           thisWeekSessions.map((s) => (
             <TouchableOpacity
@@ -424,17 +424,17 @@ export function PlanScreen({ navigation }) {
         {adaptation?.ai_explanation && (
           <>
             <Text style={styles.sectionTitle}>WEEKLY ADAPTATION</Text>
-            <View style={styles.adaptCard}>
+            <GlassCard variant="default" style={styles.adaptCard}>
               <View style={styles.adaptTop}>
                 <Text style={styles.adaptOutcome}>
                   {adaptation.adaptation_outcome?.replace(/_/g, ' ')}
                 </Text>
                 {adaptation.volume_adjustment_percent != null && adaptation.volume_adjustment_percent !== 0 && (
                   <View style={[styles.adaptBadge, {
-                    backgroundColor: adaptation.volume_adjustment_percent > 0 ? colors.success + '20' : colors.warning + '20',
+                    backgroundColor: adaptation.volume_adjustment_percent > 0 ? colors.neonGreen + '30' : colors.neonOrange + '30',
                   }]}>
                     <Text style={[styles.adaptBadgeText, {
-                      color: adaptation.volume_adjustment_percent > 0 ? colors.success : colors.warning,
+                      color: adaptation.volume_adjustment_percent > 0 ? colors.neonGreen : colors.neonOrange,
                     }]}>
                       {adaptation.volume_adjustment_percent > 0 ? '+' : ''}{adaptation.volume_adjustment_percent}% vol
                     </Text>
@@ -451,7 +451,7 @@ export function PlanScreen({ navigation }) {
                   {Number(adaptation.actual_km || 0).toFixed(0)}/{Number(adaptation.planned_km || 0).toFixed(0)} km
                 </Text>
               </View>
-            </View>
+            </GlassCard>
           </>
         )}
 
@@ -462,17 +462,17 @@ export function PlanScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.surfaceBase },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: PADDING, paddingVertical: 14,
+    paddingHorizontal: PADDING, paddingVertical: 15,
   },
   headerTitle: { ...typography.largeTitle, fontWeight: '700', color: colors.primaryText },
   rebuildBtn: {
-    backgroundColor: colors.accent + '15', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: colors.glassFillStrong, borderWidth: 1, borderColor: colors.glassStroke, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
   },
-  rebuildText: { ...typography.secondary, color: colors.link, fontWeight: '600' },
+  rebuildText: { ...typography.secondary, color: colors.linkNeon, fontWeight: '600' },
   scroll: { paddingHorizontal: PADDING, paddingBottom: 100 },
   emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
   emptyIcon: {
@@ -486,23 +486,23 @@ const styles = StyleSheet.create({
   },
   emptyBtn: { width: '100%', marginBottom: 16 },
   overviewCard: {
-    backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 20,
-    marginBottom: 16, ...theme.cardShadow,
+    backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card, padding: 20,
+    borderWidth: 1, borderColor: colors.glassStroke, marginBottom: 16, ...theme.glassShadowSoft,
   },
   planName: { ...typography.title, color: colors.primaryText, marginBottom: 6 },
   coachQuote: { ...typography.body, fontStyle: 'italic', color: colors.secondaryText, marginBottom: 16, lineHeight: 20 },
   statsRow: { flexDirection: 'row', gap: 12, marginBottom: 14 },
   stat: {
-    flex: 1, backgroundColor: colors.backgroundSecondary, borderRadius: 10,
-    paddingVertical: 10, alignItems: 'center',
+    flex: 1, backgroundColor: colors.surfaceMuted, borderRadius: 10,
+    borderWidth: 1, borderColor: colors.glassStroke, paddingVertical: 10, alignItems: 'center',
   },
   statValue: { ...typography.title, fontSize: 18, color: colors.primaryText },
   statLabel: { ...typography.caption, color: colors.secondaryText, marginTop: 2 },
-  progressTrack: { height: 4, backgroundColor: colors.backgroundSecondary, borderRadius: 2 },
-  progressFill: { height: '100%', backgroundColor: colors.accent, borderRadius: 2 },
+  progressTrack: { height: 4, backgroundColor: colors.surfaceMuted, borderRadius: 2 },
+  progressFill: { height: '100%', backgroundColor: colors.neonCyan, borderRadius: 2 },
   focusCard: {
-    backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 16,
-    marginBottom: 16, borderLeftWidth: 4, borderLeftColor: colors.coachPurple, ...theme.cardShadow,
+    backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card, padding: 16,
+    borderWidth: 1, borderColor: colors.glassStroke, marginBottom: 16, borderLeftWidth: 4, borderLeftColor: colors.coachPurple, ...theme.glassShadowSoft,
   },
   focusHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   focusTitle: { ...typography.secondary, fontWeight: '600', color: colors.primaryText },
@@ -518,14 +518,14 @@ const styles = StyleSheet.create({
     marginBottom: 10, marginTop: 8,
   },
   noSessionsCard: {
-    backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 20,
-    alignItems: 'center', marginBottom: 16, ...theme.cardShadow,
+    backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card, padding: 20,
+    borderWidth: 1, borderColor: colors.glassStroke, alignItems: 'center', marginBottom: 16, ...theme.glassShadowSoft,
   },
   noSessionsText: { ...typography.body, color: colors.secondaryText },
   sessionCard: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.card, borderRadius: theme.radius.card,
-    padding: 16, marginBottom: 10, borderLeftWidth: 4, ...theme.cardShadow,
+    backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card,
+    borderWidth: 1, borderColor: colors.glassStroke, padding: 16, marginBottom: 10, borderLeftWidth: 4, ...theme.glassShadowSoft,
   },
   sessionLeft: { flex: 1 },
   sessionDayRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
@@ -539,8 +539,8 @@ const styles = StyleSheet.create({
   missedIcon: { fontSize: 20, color: colors.destructive },
   chevron: { fontSize: 24, color: colors.secondaryText },
   adaptCard: {
-    backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 16,
-    marginBottom: 16, borderLeftWidth: 4, borderLeftColor: colors.accent, ...theme.cardShadow,
+    backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card, padding: 16,
+    borderWidth: 1, borderColor: colors.glassStroke, marginBottom: 16, borderLeftWidth: 4, borderLeftColor: colors.accent, ...theme.glassShadowSoft,
   },
   adaptTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   adaptOutcome: { ...typography.secondary, fontWeight: '600', color: colors.primaryText, textTransform: 'capitalize' },

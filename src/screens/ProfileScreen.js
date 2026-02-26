@@ -19,16 +19,17 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useRunnerMode } from '../contexts/RunnerModeContext';
 import { colors, typography, spacing, theme } from '../theme';
-import { PrimaryButton, SecondaryButton, Input } from '../components';
+import { PrimaryButton, SecondaryButton, Input, GlassCard } from '../components';
 import {
   getAppleHealthConnection,
   saveAppleHealthConnection,
   disconnectAppleHealth,
   fullSync,
   requestPermissions,
+  fillSampleData,
 } from '../services/appleHealth';
 import { directUploadAndProcess } from '../services/appleHealthExport';
-import * as DocumentPicker from 'expo-document-picker';
+import { importGpxFiles, importGpxFromXmlStrings } from '../services/gpxImport';
 import { isExpoGo } from '../lib/expoGo';
 import { openStravaOAuth } from '../services/stravaAuth';
 import { supabase, getSupabaseFunctionsUrl } from '../lib/supabase';
@@ -48,6 +49,13 @@ export function ProfileScreen({ navigation }) {
   const [pacePerKm, setPacePerKm] = useState(true);
   const [weekStartsMonday, setWeekStartsMonday] = useState(true);
   const [manualLogVisible, setManualLogVisible] = useState(false);
+  const [manualRunDate, setManualRunDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [manualRunDistance, setManualRunDistance] = useState('');
+  const [manualRunDuration, setManualRunDuration] = useState('');
+  const [manualRunAvgHr, setManualRunAvgHr] = useState('');
+  const [manualRunNotes, setManualRunNotes] = useState('');
+  const [manualRunSaving, setManualRunSaving] = useState(false);
+  const [manualRunError, setManualRunError] = useState('');
   const [addShoeVisible, setAddShoeVisible] = useState(false);
 
   // Change password state
@@ -78,6 +86,9 @@ export function ProfileScreen({ navigation }) {
   const [profileRefreshing, setProfileRefreshing] = useState(false);
 
   const [runStats, setRunStats] = useState({ totalRuns: 0, totalDistanceKm: 0, totalDurationSeconds: 0 });
+  const [gpxImportLoading, setGpxImportLoading] = useState(false);
+  const [gpxImportStatus, setGpxImportStatus] = useState(null);
+  const [sampleDataLoading, setSampleDataLoading] = useState(false);
 
   const userId = user?.id;
 
@@ -219,6 +230,7 @@ export function ProfileScreen({ navigation }) {
     if (!userId) return;
     setAppleError(null);
     try {
+      const DocumentPicker = await import('expo-document-picker');
       const result = await DocumentPicker.getDocumentAsync({
         type: ['application/zip', 'application/xml', 'text/xml'],
         copyToCacheDirectory: true,
@@ -308,6 +320,199 @@ export function ProfileScreen({ navigation }) {
     const m = Math.floor((totalSeconds % 3600) / 60);
     if (h >= 1) return m > 0 ? `${h}h ${m}m` : `${h}h`;
     return m > 0 ? `${m} min` : '0 min';
+  };
+
+  /** Parse duration string to seconds. Supports "45", "45:30", "1:30:00". */
+  const parseDurationToSeconds = (str) => {
+    const s = (str || '').trim();
+    if (!s) return null;
+    const parts = s.split(':').map((p) => parseInt(p, 10)).filter((n) => !Number.isNaN(n));
+    if (parts.length === 1) return parts[0] * 60;
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return null;
+  };
+
+  const parseCsvToRows = (text) => {
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length < 2) return [];
+    const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
+    return lines.slice(1).map((line) => {
+      const values = line.split(',').map((v) => v.trim().replace(/^"|"$/g, ''));
+      const row = {};
+      headers.forEach((h, i) => {
+        row[h] = values[i] !== undefined ? values[i] : '';
+      });
+      return row;
+    });
+  };
+
+  const handleFillSampleData = async () => {
+    if (!userId) return;
+    setSampleDataLoading(true);
+    try {
+      const [DocumentPicker, FileSystem] = await Promise.all([
+        import('expo-document-picker'),
+        import('expo-file-system/legacy'),
+      ]);
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['text/csv', 'application/json'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      let overrideDataset = null;
+      if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        const uri = asset.uri;
+        const name = (asset.name || '').toLowerCase();
+        const content = await FileSystem.readAsStringAsync(uri, { encoding: 'utf8' });
+        if (name.endsWith('.json')) {
+          const parsed = JSON.parse(content);
+          overrideDataset = Array.isArray(parsed) ? parsed : [parsed];
+        } else if (name.endsWith('.csv')) {
+          overrideDataset = parseCsvToRows(content);
+        }
+      }
+      const { wellnessDays, runsInserted } = await fillSampleData(userId, overrideDataset ?? undefined);
+      await Promise.all([loadRunStats(), loadAppleHealth()]);
+      Alert.alert('Exempeldata inlagd', `${wellnessDays} dagars hälsodata och ${runsInserted} löpningar lades till.`);
+    } catch (e) {
+      Alert.alert('Kunde inte lägga in exempeldata', e?.message || 'Ett fel uppstod.');
+    } finally {
+      setSampleDataLoading(false);
+    }
+  };
+
+  const handleImportGpx = async () => {
+    if (!userId) return;
+    try {
+      const [DocumentPicker, FileSystem, { default: JSZip }] = await Promise.all([
+        import('expo-document-picker'),
+        import('expo-file-system/legacy'),
+        import('jszip'),
+      ]);
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/gpx+xml', 'application/zip'],
+        copyToCacheDirectory: true,
+        multiple: true,
+      });
+      if (result.canceled) return;
+      const assets = result.assets || [];
+      if (assets.length === 0) return;
+      setGpxImportLoading(true);
+      setGpxImportStatus('Processing...');
+      const uris = [];
+      const xmlEntries = [];
+      let zipFileIndex = 0;
+      for (const asset of assets) {
+        const name = (asset.name || '').toLowerCase();
+        if (name.endsWith('.zip')) {
+          setGpxImportStatus(`Reading ${asset.name}...`);
+          const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: 'base64' });
+          const zip = await JSZip.loadAsync(base64, { base64: true });
+          const gpxNames = Object.keys(zip.files).filter((n) => n.toLowerCase().endsWith('.gpx'));
+          for (let i = 0; i < gpxNames.length; i++) {
+            const file = zip.files[gpxNames[i]];
+            if (file.dir) continue;
+            const xml = await file.async('string');
+            xmlEntries.push({ xml, fileIndex: uris.length + zipFileIndex });
+            zipFileIndex++;
+          }
+        } else {
+          uris.push(asset.uri);
+        }
+      }
+      let runsInserted = 0;
+      let runsSkipped = 0;
+      const errors = [];
+      if (uris.length > 0) {
+        setGpxImportStatus('Importing GPX files...');
+        const r = await importGpxFiles(uris, userId, setGpxImportStatus);
+        runsInserted += r.runsInserted;
+        runsSkipped += r.runsSkipped;
+        errors.push(...r.errors);
+      }
+      if (xmlEntries.length > 0) {
+        setGpxImportStatus('Importing from ZIP...');
+        const r = await importGpxFromXmlStrings(xmlEntries, userId, setGpxImportStatus);
+        runsInserted += r.runsInserted;
+        runsSkipped += r.runsSkipped;
+        errors.push(...r.errors);
+      }
+      setGpxImportLoading(false);
+      setGpxImportStatus(null);
+      await loadRunStats();
+      if (errors.length > 0) {
+        Alert.alert('Import finished', `${runsInserted} runs imported, ${runsSkipped} already existed. ${errors.join(' ')}`);
+      } else {
+        Alert.alert('Import complete', `${runsInserted} runs imported.${runsSkipped > 0 ? ` ${runsSkipped} skipped (duplicates).` : ''}`);
+      }
+    } catch (e) {
+      setGpxImportLoading(false);
+      setGpxImportStatus(null);
+      Alert.alert('Import failed', e?.message || 'Could not import GPX.');
+    }
+  };
+
+  const handleSaveManualRun = async () => {
+    setManualRunError('');
+    const distKm = parseFloat((manualRunDistance || '').replace(',', '.'), 10);
+    const durationSeconds = parseDurationToSeconds(manualRunDuration);
+    const avgHr = manualRunAvgHr.trim() ? parseInt(manualRunAvgHr, 10) : null;
+
+    if (!manualRunDate.trim()) {
+      setManualRunError('Date is required.');
+      return;
+    }
+    if (Number.isNaN(distKm) || distKm <= 0) {
+      setManualRunError('Enter a valid distance in km.');
+      return;
+    }
+    if (durationSeconds == null || durationSeconds <= 0) {
+      setManualRunError('Enter duration (e.g. 45 or 45:30).');
+      return;
+    }
+    if (!userId) return;
+
+    setManualRunSaving(true);
+    try {
+      const date = new Date(manualRunDate);
+      if (Number.isNaN(date.getTime())) {
+        setManualRunError('Invalid date.');
+        setManualRunSaving(false);
+        return;
+      }
+      date.setHours(12, 0, 0, 0);
+      const startedAt = new Date(date);
+      const endedAt = new Date(date.getTime() + durationSeconds * 1000);
+      const distanceMeters = Math.round(distKm * 1000);
+      const title = `Run · ${distKm.toFixed(1)} km`;
+
+      const { error } = await supabase.from('runs').insert({
+        user_id: userId,
+        started_at: startedAt.toISOString(),
+        ended_at: endedAt.toISOString(),
+        distance_meters: distanceMeters,
+        duration_seconds: durationSeconds,
+        title,
+        notes: (manualRunNotes || '').trim() || null,
+        source: 'manual',
+        avg_hr: avgHr && Number.isInteger(avgHr) ? avgHr : null,
+      });
+      if (error) throw error;
+      setManualLogVisible(false);
+      setManualRunDate(new Date().toISOString().slice(0, 10));
+      setManualRunDistance('');
+      setManualRunDuration('');
+      setManualRunAvgHr('');
+      setManualRunNotes('');
+      await loadRunStats();
+      Alert.alert('Run logged', 'Your run has been saved.');
+    } catch (e) {
+      setManualRunError(e?.message || 'Failed to save run.');
+    } finally {
+      setManualRunSaving(false);
+    }
   };
 
   const handleConnectStrava = async () => {
@@ -428,11 +633,12 @@ export function ProfileScreen({ navigation }) {
           <RefreshControl
             refreshing={profileRefreshing}
             onRefresh={async () => { setProfileRefreshing(true); await Promise.all([loadRunStats(), loadStravaConnection(), loadAppleHealth()]); setProfileRefreshing(false); }}
+            tintColor={colors.linkNeon}
           />
         }
       >
         {/* USER CARD */}
-        <View style={[styles.card, styles.userCard]}>
+        <GlassCard style={[styles.card, styles.userCard]} variant="elevated">
           <View style={styles.userTop}>
             <View style={styles.avatar}><Text style={styles.avatarText}>{initials}</Text></View>
             <View style={styles.userInfo}>
@@ -441,7 +647,7 @@ export function ProfileScreen({ navigation }) {
               <Text style={styles.memberSince}>Pacelab member since {user?.created_at ? new Date(user.created_at).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) : ''}</Text>
             </View>
           </View>
-        </View>
+        </GlassCard>
         <View style={styles.statsBentoGrid}>
           <View style={[styles.bentoBox, styles.bentoBoxFeatured]}>
             <Text style={styles.bentoValue}>{runStats.totalRuns}</Text>
@@ -545,15 +751,15 @@ export function ProfileScreen({ navigation }) {
 
         {/* CONNECTIONS */}
         <Text style={styles.sectionTitle}>CONNECTIONS</Text>
-        <View style={styles.card}>
+        <GlassCard style={styles.card} variant="default">
           <ConnectionRow icon="S" iconColor={colors.stravaOrange} title="Strava" connected={stravaConnected} subtitle={stravaSubtitle} connectLabel="Connect Strava" last={false} onConnect={handleConnectStrava} onDisconnect={handleDisconnectStrava} onSync={stravaConnected ? handleSyncNowStrava : undefined} loading={stravaLoading} syncLoading={stravaSyncLoading} error={stravaError} />
           <ConnectionRow icon="G" iconColor="#000" title="Garmin Connect" connected={GARMIN_CONNECTED} subtitle={GARMIN_CONNECTED ? 'Syncing Body Battery / HRV / Sleep' : 'Sync readiness and wellness data'} connectLabel="Connect Garmin" last={false} />
           <ConnectionRow icon="AH" iconColor="#000" title="Apple Health" connected={appleConnected} subtitle={appleSubtitle} connectLabel={isExpoGo ? 'Import data' : 'Connect Apple Health'} last onConnect={handleConnectAppleHealth} onDisconnect={handleDisconnectAppleHealth} onSync={appleConnected && isExpoGo ? handleImportAppleHealthExport : undefined} loading={appleLoading} syncLoading={false} preview={applePreview} error={appleError} />
-        </View>
+        </GlassCard>
 
         {/* IMPORT DATA */}
         <Text style={styles.sectionTitle}>IMPORT DATA</Text>
-        <View style={styles.card}>
+        <GlassCard style={styles.card} variant="default">
           <TouchableOpacity style={styles.importRow} onPress={handleImportAppleHealthExport}>
             <View style={styles.importTextBlock}>
               <Text style={styles.importTitle}>Import Apple Health data</Text>
@@ -561,44 +767,51 @@ export function ProfileScreen({ navigation }) {
             </View>
             <Text style={styles.chevron}>{'\u203a'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.importRow} onPress={() => navigation.getParent()?.getParent()?.navigate('OnboardingGPXImport')}>
+          <TouchableOpacity style={styles.importRow} onPress={handleImportGpx} disabled={gpxImportLoading}>
             <View style={styles.importTextBlock}>
               <Text style={styles.importTitle}>Import GPX Files</Text>
               <Text style={styles.importSubtitle}>Import runs from Garmin or any device</Text>
             </View>
             <Text style={styles.chevron}>{'\u203a'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.importRow, { borderBottomWidth: 0 }]} onPress={() => setManualLogVisible(true)}>
+          <TouchableOpacity style={styles.importRow} onPress={() => setManualLogVisible(true)}>
             <View style={styles.importTextBlock}>
               <Text style={styles.importTitle}>Log a Run Manually</Text>
               <Text style={styles.importSubtitle}>Add a run without GPS data</Text>
             </View>
             <Text style={styles.chevron}>{'\u203a'}</Text>
           </TouchableOpacity>
-        </View>
+          <TouchableOpacity style={[styles.importRow, { borderBottomWidth: 0 }]} onPress={handleFillSampleData} disabled={sampleDataLoading}>
+            <View style={styles.importTextBlock}>
+              <Text style={styles.importTitle}>Fyll med exempeldata</Text>
+              <Text style={styles.importSubtitle}>Lägg in 14 dagars hälsodata och 20 exempel-löpningar för demo</Text>
+            </View>
+            <Text style={styles.chevron}>{'\u203a'}</Text>
+          </TouchableOpacity>
+        </GlassCard>
 
         {/* SHOES */}
         <Text style={styles.sectionTitle}>SHOES</Text>
-        <View style={styles.card}>
+        <GlassCard style={styles.card} variant="soft">
           <Text style={styles.emptyShoeText}>Track shoe mileage to know when to replace them</Text>
           <TouchableOpacity style={styles.addShoeRow} onPress={() => setAddShoeVisible(true)}>
             <Text style={styles.addShoeText}>+ Add shoe</Text>
           </TouchableOpacity>
-        </View>
+        </GlassCard>
 
         {/* PREFERENCES */}
         <Text style={styles.sectionTitle}>PREFERENCES</Text>
-        <View style={styles.card}>
+        <GlassCard style={styles.card} variant="default">
           <Row label="Keep me logged in" right={<Switch value={keepLoggedIn} onValueChange={setKeepLoggedIn} trackColor={{ false: colors.divider, true: colors.accent }} />} />
           <Row label="Distance units" right={<Text style={styles.rowValue}>{unitsKm ? 'Kilometers' : 'Miles'}</Text>} onPress={() => setUnitsKm(!unitsKm)} />
           <Row label="Pace format" right={<Text style={styles.rowValue}>{pacePerKm ? 'min/km' : 'min/mi'}</Text>} onPress={() => setPacePerKm(!pacePerKm)} />
           <Row label="Week starts on" right={<Text style={styles.rowValue}>{weekStartsMonday ? 'Monday' : 'Sunday'}</Text>} onPress={() => setWeekStartsMonday(!weekStartsMonday)} />
           <Row label="Heart rate zones" right={<Text style={styles.chevron}>{'\u203a'}</Text>} onPress={() => Alert.alert('Heart Rate Zones', 'HR zone customization coming in a future update. Zones are currently auto-calculated from your run data.')} />
-        </View>
+        </GlassCard>
 
         {/* TRAINING */}
         <Text style={styles.sectionTitle}>TRAINING</Text>
-        <View style={styles.card}>
+        <GlassCard style={styles.card} variant="soft">
           <View style={styles.experienceModeRow}>
             <View style={styles.experienceModeText}>
               <Text style={styles.prefRowText}>Experience Mode</Text>
@@ -645,17 +858,17 @@ export function ProfileScreen({ navigation }) {
           </View>
           <TouchableOpacity style={styles.prefRow} onPress={() => navigation.getParent()?.navigate('PlanTab')}><Text style={styles.prefRowText}>Training plan settings</Text><Text style={styles.chevron}>{'\u203a'}</Text></TouchableOpacity>
           <TouchableOpacity style={styles.prefRow} onPress={() => Alert.alert('Notifications', 'Notification preferences coming in a future update.')}><Text style={styles.prefRowText}>Notifications</Text><Text style={styles.chevron}>{'\u203a'}</Text></TouchableOpacity>
-        </View>
+        </GlassCard>
 
         {/* ACCOUNT */}
         <Text style={styles.sectionTitle}>ACCOUNT</Text>
-        <View style={styles.card}>
+        <GlassCard style={styles.card} variant="soft">
           <TouchableOpacity style={styles.prefRow} onPress={() => { setEditName(name); setEditProfileVisible(true); }}><Text style={styles.prefRowText}>Edit Profile</Text><Text style={styles.chevron}>{'\u203a'}</Text></TouchableOpacity>
           <TouchableOpacity style={styles.prefRow} onPress={() => { setPasswordError(''); setNewPassword(''); setConfirmPassword(''); setChangePasswordVisible(true); }}><Text style={styles.prefRowText}>Change Password</Text><Text style={styles.chevron}>{'\u203a'}</Text></TouchableOpacity>
           <TouchableOpacity style={styles.prefRow} onPress={() => Linking.openURL('https://pacelab.app/privacy')}><Text style={styles.prefRowText}>Privacy Policy</Text><Text style={styles.chevron}>{'\u203a'}</Text></TouchableOpacity>
           <TouchableOpacity style={styles.prefRow} onPress={() => Linking.openURL('https://pacelab.app/terms')}><Text style={styles.prefRowText}>Terms of Service</Text><Text style={styles.chevron}>{'\u203a'}</Text></TouchableOpacity>
           <TouchableOpacity style={styles.prefRow} onPress={() => Linking.openURL('mailto:support@pacelab.app')}><Text style={styles.prefRowText}>Help & Support</Text><Text style={styles.chevron}>{'\u203a'}</Text></TouchableOpacity>
-        </View>
+        </GlassCard>
 
         <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign out</Text>
@@ -718,12 +931,13 @@ export function ProfileScreen({ navigation }) {
           <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>Log a run manually</Text>
-            <TextInput style={styles.textInput} placeholder="Date" placeholderTextColor={colors.tertiaryText} />
-            <TextInput style={styles.textInput} placeholder="Distance (km)" placeholderTextColor={colors.tertiaryText} keyboardType="decimal-pad" />
-            <TextInput style={styles.textInput} placeholder="Duration (e.g. 45:30)" placeholderTextColor={colors.tertiaryText} />
-            <TextInput style={styles.textInput} placeholder="Avg HR" placeholderTextColor={colors.tertiaryText} keyboardType="number-pad" />
-            <TextInput style={styles.textInput} placeholder="Notes" placeholderTextColor={colors.tertiaryText} multiline />
-            <PrimaryButton title="Save run" onPress={() => { setManualLogVisible(false); Alert.alert('Run logged', 'Manual run logging will be fully implemented in a future update.'); }} style={styles.modalBtn} />
+            <TextInput style={styles.textInput} placeholder="Date (YYYY-MM-DD)" placeholderTextColor={colors.tertiaryText} value={manualRunDate} onChangeText={setManualRunDate} />
+            <TextInput style={styles.textInput} placeholder="Distance (km)" placeholderTextColor={colors.tertiaryText} keyboardType="decimal-pad" value={manualRunDistance} onChangeText={setManualRunDistance} />
+            <TextInput style={styles.textInput} placeholder="Duration (e.g. 45 or 45:30)" placeholderTextColor={colors.tertiaryText} value={manualRunDuration} onChangeText={setManualRunDuration} />
+            <TextInput style={styles.textInput} placeholder="Avg HR (optional)" placeholderTextColor={colors.tertiaryText} keyboardType="number-pad" value={manualRunAvgHr} onChangeText={setManualRunAvgHr} />
+            <TextInput style={styles.textInput} placeholder="Notes (optional)" placeholderTextColor={colors.tertiaryText} multiline value={manualRunNotes} onChangeText={setManualRunNotes} />
+            {manualRunError ? <Text style={styles.connectionError}>{manualRunError}</Text> : null}
+            <PrimaryButton title="Save run" onPress={handleSaveManualRun} loading={manualRunSaving} style={styles.modalBtn} />
             <SecondaryButton title="Cancel" onPress={() => setManualLogVisible(false)} />
           </Pressable>
         </Pressable>
@@ -747,11 +961,11 @@ export function ProfileScreen({ navigation }) {
       </Modal>
 
       {
-        appleImportLoading && (
+        (appleImportLoading || gpxImportLoading) && (
           <View style={styles.importOverlay}>
             <View style={styles.importOverlayCard}>
               <ActivityIndicator size="large" color={colors.accent} />
-              <Text style={styles.importOverlayText}>{appleImportStatus || 'Processing...'}</Text>
+              <Text style={styles.importOverlayText}>{appleImportStatus || gpxImportStatus || 'Processing...'}</Text>
             </View>
           </View>
         )
@@ -806,15 +1020,15 @@ function Row({ label, right, onPress }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: PADDING, paddingVertical: 12 },
+  container: { flex: 1, backgroundColor: colors.surfaceBase },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: PADDING, paddingVertical: 14 },
   headerTitle: { ...typography.largeTitle, color: colors.primaryText, letterSpacing: -0.5 },
   scroll: { paddingHorizontal: PADDING, paddingBottom: 100 },
-  sectionTitle: { ...typography.overline, color: colors.tertiaryText, marginBottom: 10, marginTop: 8 },
-  card: { backgroundColor: colors.card, borderRadius: theme.radius.card, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: colors.glassBorder, ...theme.cardShadow },
+  sectionTitle: { ...typography.overline, color: colors.secondaryText, marginBottom: 10, marginTop: 8, letterSpacing: 1 },
+  card: { backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: colors.glassStroke, ...theme.glassShadowSoft },
   userCard: {},
   userTop: { flexDirection: 'row', marginBottom: 20 },
-  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.backgroundSecondary, alignItems: 'center', justifyContent: 'center', marginRight: 16, borderWidth: 1.5, borderColor: colors.glassBorder },
+  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center', marginRight: 16, borderWidth: 1.5, borderColor: colors.glassStroke },
   avatarText: { ...typography.title, fontSize: 22, color: colors.primaryText, letterSpacing: -0.5 },
   userInfo: { flex: 1 },
   userName: { ...typography.title, color: colors.primaryText, letterSpacing: -0.3 },
@@ -824,8 +1038,8 @@ const styles = StyleSheet.create({
   statBlock: { flex: 1, alignItems: 'center' },
   statsHint: { ...typography.caption, color: colors.secondaryText, textAlign: 'center', marginTop: 8 },
   statsHintBlock: { marginTop: 8 },
-  diagnosticButton: { marginTop: 12, paddingVertical: 10, paddingHorizontal: 16, backgroundColor: colors.backgroundSecondary, borderRadius: 10, alignSelf: 'center', borderWidth: 1, borderColor: colors.glassBorder },
-  diagnosticButtonText: { ...typography.secondary, color: colors.link, fontWeight: '600' },
+  diagnosticButton: { marginTop: 12, paddingVertical: 10, paddingHorizontal: 16, backgroundColor: colors.surfaceMuted, borderRadius: 10, alignSelf: 'center', borderWidth: 1, borderColor: colors.glassStroke },
+  diagnosticButtonText: { ...typography.secondary, color: colors.linkNeon, fontWeight: '600' },
   statValue: { ...typography.title, color: colors.primaryText, letterSpacing: -0.3 },
   statLabel: { ...typography.caption, color: colors.tertiaryText, marginTop: 4 },
   levelBadge: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginBottom: 16 },
@@ -835,7 +1049,7 @@ const styles = StyleSheet.create({
   statsBentoGrid: { flexDirection: 'row', gap: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.divider, paddingTop: 16 },
   metricsBentoGrid: { marginBottom: 16 },
   bentoGridRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
-  bentoBox: { backgroundColor: colors.backgroundSecondary, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: colors.glassBorder, justifyContent: 'center' },
+  bentoBox: { backgroundColor: colors.surfaceMuted, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: colors.glassStroke, justifyContent: 'center' },
   bentoBoxFeatured: { flex: 1, paddingVertical: 24, alignItems: 'center' },
   bentoColumnItem: { flex: 1, gap: 12 },
   bentoBoxLarge: { paddingVertical: 20 },
@@ -848,11 +1062,11 @@ const styles = StyleSheet.create({
   bentoLabel: { ...typography.caption, color: colors.tertiaryText },
 
   linkRowBento: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 4 },
-  linkText: { ...typography.secondary, color: colors.link },
+  linkText: { ...typography.secondary, color: colors.linkNeon },
   chevron: { ...typography.body, color: colors.tertiaryText, marginLeft: 4 },
   connectionRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.glassBorder },
   connectionRowLast: { borderBottomWidth: 0 },
-  connectionIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 14, borderWidth: 1, borderColor: colors.glassBorder, backgroundColor: colors.backgroundSecondary },
+  connectionIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 14, borderWidth: 1, borderColor: colors.glassStroke, backgroundColor: colors.surfaceMuted },
   connectionIconText: { fontSize: 14, fontWeight: '700' },
   connectionText: { flex: 1 },
   connectionTitle: { ...typography.body, fontWeight: '600', color: colors.primaryText },
@@ -863,9 +1077,9 @@ const styles = StyleSheet.create({
   connectionHint: { ...typography.caption, color: colors.tertiaryText, marginTop: 2 },
   connectionActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   syncNowBtn: {},
-  syncNowText: { ...typography.secondary, color: colors.link },
+  syncNowText: { ...typography.secondary, color: colors.linkNeon },
   disconnectText: { ...typography.caption, color: colors.destructive },
-  connectBtnText: { ...typography.secondary, color: colors.link, fontWeight: '600' },
+  connectBtnText: { ...typography.secondary, color: colors.linkNeon, fontWeight: '600' },
   connectionError: { ...typography.caption, color: colors.destructive, marginTop: 4 },
   importRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider },
   importTextBlock: { flex: 1 },
@@ -875,12 +1089,12 @@ const styles = StyleSheet.create({
   shoeName: { ...typography.body, fontWeight: '600', color: colors.primaryText },
   shoeMeta: { ...typography.caption, color: colors.tertiaryText, marginTop: 2 },
   shoeDist: { ...typography.caption, color: colors.primaryText, marginTop: 4 },
-  shoeProgressTrack: { height: 4, backgroundColor: colors.backgroundSecondary, borderRadius: 2, marginTop: 6, overflow: 'hidden' },
+  shoeProgressTrack: { height: 4, backgroundColor: colors.surfaceMuted, borderRadius: 2, marginTop: 6, overflow: 'hidden' },
   shoeProgressFill: { height: '100%', borderRadius: 2 },
   shoeStatus: { ...typography.caption, marginTop: 6, color: colors.tertiaryText },
   emptyShoeText: { ...typography.body, color: colors.secondaryText, marginBottom: 8 },
   addShoeRow: { paddingVertical: 14 },
-  addShoeText: { ...typography.body, color: colors.link },
+  addShoeText: { ...typography.body, color: colors.linkNeon },
   prRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider },
   prLabel: { width: 100, ...typography.body, color: colors.primaryText },
   prTime: { flex: 1, ...typography.headline, color: colors.primaryText },
@@ -893,27 +1107,27 @@ const styles = StyleSheet.create({
   versionText: { ...typography.caption, color: colors.tertiaryText, textAlign: 'center', marginBottom: 20 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   modalOverlayBottom: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end' },
-  modalBox: { width: '100%', maxWidth: 360, backgroundColor: colors.cardElevated, borderRadius: theme.radius.modal, padding: 24, borderWidth: 1, borderColor: colors.glassBorder, ...theme.cardShadowElevated },
-  modalSheet: { backgroundColor: colors.cardElevated, borderTopLeftRadius: theme.radius.modal, borderTopRightRadius: theme.radius.modal, padding: 24, maxHeight: '90%', borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: colors.glassBorder },
+  modalBox: { width: '100%', maxWidth: 360, backgroundColor: colors.surfaceElevated, borderRadius: theme.radius.modal, padding: 24, borderWidth: 1, borderColor: colors.glassStroke, ...theme.cardShadowElevated },
+  modalSheet: { backgroundColor: colors.surfaceElevated, borderTopLeftRadius: theme.radius.modal, borderTopRightRadius: theme.radius.modal, padding: 24, maxHeight: '90%', borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: colors.glassStroke },
   modalHandle: { width: 40, height: 4, backgroundColor: colors.divider, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
   modalTitle: { ...typography.title, color: colors.primaryText, marginBottom: 20 },
   modalError: { ...typography.caption, color: colors.destructive, marginBottom: 12 },
   modalBtn: { marginBottom: 12 },
   modalCancel: { alignSelf: 'center', paddingVertical: 8 },
   modalCancelText: { ...typography.secondary, color: colors.tertiaryText },
-  textInput: { backgroundColor: colors.backgroundSecondary, borderRadius: theme.radius.input, paddingHorizontal: 14, paddingVertical: 14, ...typography.body, color: colors.primaryText, marginBottom: 12, borderWidth: 1, borderColor: colors.glassBorder },
+  textInput: { backgroundColor: colors.surfaceMuted, borderRadius: theme.radius.input, paddingHorizontal: 14, paddingVertical: 14, ...typography.body, color: colors.primaryText, marginBottom: 12, borderWidth: 1, borderColor: colors.glassStroke },
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   toggleLabel: { ...typography.body, color: colors.primaryText },
   importOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', zIndex: 999 },
-  importOverlayCard: { backgroundColor: colors.cardElevated, borderRadius: theme.radius.card, padding: 32, alignItems: 'center', minWidth: 200, borderWidth: 1, borderColor: colors.glassBorder, ...theme.cardShadowElevated },
+  importOverlayCard: { backgroundColor: colors.surfaceElevated, borderRadius: theme.radius.card, padding: 32, alignItems: 'center', minWidth: 200, borderWidth: 1, borderColor: colors.glassStroke, ...theme.cardShadowElevated },
   importOverlayText: { ...typography.body, color: colors.primaryText, marginTop: 16, textAlign: 'center' },
   experienceModeRow: { paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider },
   experienceModeText: { marginBottom: 12 },
   experienceModeHint: { ...typography.caption, color: colors.tertiaryText, marginTop: 4 },
   experienceModePills: { flexDirection: 'row', gap: 8 },
-  modePill: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, backgroundColor: colors.backgroundSecondary, borderWidth: 1, borderColor: colors.glassBorder },
-  modePillActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  modePill: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.glassStroke },
+  modePillActive: { backgroundColor: colors.glassFillStrong, borderColor: colors.accentLight },
   modePillText: { ...typography.secondary, fontWeight: '600', color: colors.secondaryText },
-  modePillTextActive: { color: colors.background },
+  modePillTextActive: { color: colors.primaryText },
   beginnerProfileText: { ...typography.body, color: colors.secondaryText, marginBottom: 12 },
 });

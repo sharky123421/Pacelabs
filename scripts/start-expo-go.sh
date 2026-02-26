@@ -16,6 +16,20 @@ fi
 
 export CI=false
 export REACT_NATIVE_PACKAGER_HOSTNAME=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
+export EXPO_NO_TELEMETRY=1
+export EXPO_OFFLINE=1
+
+# Clean stale Metro temp caches that can cause startup hangs.
+tmp_root="${TMPDIR:-/tmp}"
+rm -rf "${tmp_root}"/metro-* "${tmp_root}"/haste-map-* 2>/dev/null || true
+
+# If Watchman is enabled, reset this project's watch to avoid stale state.
+if [ "${EXPO_NO_WATCHMAN:-0}" != "1" ] && command -v watchman >/dev/null 2>&1; then
+  watchman watch-del "$(pwd)" >/dev/null 2>&1 || true
+  watchman watch-project "$(pwd)" >/dev/null 2>&1 || true
+fi
+
 echo "Expo Go (LAN) – host: ${REACT_NATIVE_PACKAGER_HOSTNAME:-localhost}, port: 8081"
-echo "Clearing Metro cache and starting..."
-exec npx expo start --go --port 8081 --clear
+echo "Starting Metro..."
+# Use --clear only when needed (npm run start:go:lan -- --clear). Default start is faster and avoids Metro hang.
+exec npx expo start --go --port 8081 "$@"

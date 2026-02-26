@@ -1,55 +1,54 @@
 import React from 'react';
-import { Pressable, Text, StyleSheet, Animated } from 'react-native';
+import { Text, StyleSheet, Pressable, Animated } from 'react-native';
 import { colors, typography, spacing, theme } from '../theme';
 import { usePressAnimation } from '../hooks/usePressAnimation';
 import { hapticLight } from '../lib/haptics';
 
-export function SecondaryButton({ title, onPress, disabled, style, textStyle }) {
+export function GlassButton({ title, onPress, disabled, loading, style, textStyle, variant = 'primary' }) {
   const { animatedStyle, onPressIn, onPressOut } = usePressAnimation();
+  const isDisabled = disabled || loading;
 
   const handlePress = () => {
-    if (disabled) return;
+    if (isDisabled) return;
     hapticLight();
     onPress?.();
   };
 
   return (
     <Pressable
-      style={({ pressed }) => [
-        styles.button,
-        pressed && !disabled && styles.buttonPressed,
-        disabled && styles.disabled,
-        style,
-      ]}
       onPress={handlePress}
-      disabled={disabled}
+      disabled={isDisabled}
       onPressIn={onPressIn}
       onPressOut={onPressOut}
+      style={({ pressed }) => [
+        styles.base,
+        variant === 'secondary' ? styles.secondary : styles.primary,
+        isDisabled && styles.disabled,
+        pressed && !isDisabled && styles.pressed,
+        style,
+      ]}
     >
       <Animated.View style={styles.highlightLayer} pointerEvents="none" />
-      <Animated.View style={[styles.inner, animatedStyle]}>
-        <Text style={[styles.text, textStyle]}>{title}</Text>
+      <Animated.View style={animatedStyle}>
+        <Text style={[styles.text, variant === 'secondary' && styles.textSecondary, textStyle]}>
+          {loading ? '…' : title}
+        </Text>
       </Animated.View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  button: {
-    backgroundColor: colors.glassFillSoft,
-    borderWidth: 1,
-    borderColor: colors.glassStroke,
+  base: {
     borderRadius: theme.radius.button,
     paddingVertical: spacing.touchablePadding,
     paddingHorizontal: spacing.controlInset,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 56,
+    minHeight: 52,
+    borderWidth: 1,
     overflow: 'hidden',
     ...theme.glassShadowSoft,
-  },
-  buttonPressed: {
-    backgroundColor: colors.glassFillStrong,
   },
   highlightLayer: {
     position: 'absolute',
@@ -60,16 +59,28 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.button,
     backgroundColor: colors.glassHighlight,
   },
-  inner: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  primary: {
+    backgroundColor: colors.glassFillStrong,
+    borderColor: colors.glassStroke,
+  },
+  secondary: {
+    backgroundColor: colors.glassFillSoft,
+    borderColor: colors.glassStroke,
+  },
+  pressed: {
+    backgroundColor: colors.glassSurfaceLight,
+    borderColor: colors.accentLight,
   },
   disabled: {
-    opacity: 0.3,
+    opacity: 0.4,
   },
   text: {
     ...typography.headline,
     color: colors.primaryText,
     letterSpacing: -0.1,
   },
+  textSecondary: {
+    color: colors.secondaryText,
+  },
 });
+

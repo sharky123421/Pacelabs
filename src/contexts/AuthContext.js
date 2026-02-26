@@ -9,15 +9,27 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [keepLoggedIn, setKeepLoggedInState] = useState(true);
+  const [profileData, setProfileData] = useState(null);
 
   useEffect(() => {
     getKeepLoggedInPreference().then(setKeepLoggedInState);
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
+      // Pipeline: fetch profile in the same async flow to avoid extra render cycle
+      if (s?.user?.id) {
+        try {
+          const { data } = await supabase
+            .from('profiles')
+            .select('runner_mode, beginner_started_at')
+            .eq('id', s.user.id)
+            .maybeSingle();
+          if (data) setProfileData(data);
+        } catch (_) {}
+      }
       setLoading(false);
     });
 
@@ -33,7 +45,10 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (!user?.id) return;
-    registerPushToken(user.id).catch(() => {});
+    const timer = setTimeout(() => {
+      registerPushToken(user.id).catch(() => {});
+    }, 5000);
+    return () => clearTimeout(timer);
   }, [user?.id]);
 
   const setKeepLoggedIn = async (value) => {
@@ -45,6 +60,7 @@ export function AuthProvider({ children }) {
     user,
     session,
     loading,
+    profileData,
     keepLoggedIn,
     setKeepLoggedIn,
     signUp: supabase.auth.signUp.bind(supabase.auth),

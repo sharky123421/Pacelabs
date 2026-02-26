@@ -7,6 +7,7 @@ import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import { isExpoGo } from '../lib/expoGo';
 import { supabase } from '../lib/supabase';
+import { getUltraSimulationWindow, buildWellnessRowsFromDataset, buildRunRowsFromDataset, filterExistingRunRows } from './sampleDataset';
 
 const isIOS = Platform.OS === 'ios';
 
@@ -298,10 +299,12 @@ export function calculateAppleReadiness(wellnessData, userBaselines = {}) {
   return { readiness_score: score, readiness_verdict: verdict };
 }
 
+const MOCK_WELLNESS_DAYS = 7;
+
 /**
  * Sync wellness data from HealthKit and upsert into apple_wellness.
- * When HealthKit is unavailable (Expo Go / simulator), returns existing DB data
- * from prior imports instead of overwriting with mock data.
+ * When HealthKit is unavailable (Expo Go / simulator), writes mock wellness for
+ * the last MOCK_WELLNESS_DAYS days so Today/Analytics have data.
  */
 export async function syncWellness(userId) {
   const today = dateString(new Date());
@@ -330,6 +333,49 @@ export async function syncWellness(userId) {
   };
   const useMock = !isIOS || !getHealthKit();
   if (useMock) {
+    const mock = mockAppleHealthData();
+    const wellnessRows = [];
+    for (let d = 0; d < MOCK_WELLNESS_DAYS; d++) {
+      const dte = new Date();
+      dte.setDate(dte.getDate() - d);
+      const date = dateString(dte);
+      const variation = (d) => (d % 3) - 1;
+      const hrv = (mock.wellness.hrv_last_night ?? 42) + variation(d) * 4;
+      const sleepScore = Math.max(0, Math.min(100, (mock.wellness.sleep_score ?? 85) + variation(d) * 5));
+      const rhr = (mock.wellness.resting_heart_rate ?? 52) + variation(d);
+      const { readiness_score: rs, readiness_verdict: rv } = calculateAppleReadiness(
+        { hrv_status: mock.wellness.hrv_status, sleep_score: sleepScore, resting_heart_rate: rhr },
+        { resting_heart_rate: 52 }
+      );
+      wellnessRows.push({
+        user_id: userId,
+        date,
+        hrv_last_night: hrv,
+        hrv_status: mock.wellness.hrv_status,
+        resting_heart_rate: rhr,
+        sleep_score: sleepScore,
+        sleep_duration_seconds: mock.wellness.sleep_duration_seconds,
+        sleep_deep_seconds: mock.wellness.sleep_deep_seconds,
+        sleep_rem_seconds: mock.wellness.sleep_rem_seconds,
+        sleep_core_seconds: mock.wellness.sleep_core_seconds,
+        sleep_awake_seconds: mock.wellness.sleep_awake_seconds,
+        apple_vo2_max: mock.wellness.apple_vo2_max,
+        move_calories: (mock.wellness.move_calories ?? 420) + variation(d) * 20,
+        move_goal: mock.wellness.move_goal ?? 450,
+        exercise_minutes: (mock.wellness.exercise_minutes ?? 35) + variation(d) * 5,
+        exercise_goal: mock.wellness.exercise_goal ?? 30,
+        stand_hours: (mock.wellness.stand_hours ?? 10) + (d === 0 ? 0 : variation(d)),
+        stand_goal: mock.wellness.stand_goal ?? 12,
+        readiness_score: rs,
+        readiness_verdict: rv,
+        synced_at: new Date().toISOString(),
+      });
+    }
+    const { error } = await supabase.from('apple_wellness').upsert(wellnessRows, {
+      onConflict: 'user_id,date',
+      ignoreDuplicates: false,
+    });
+    if (error) throw error;
     const { data } = await supabase
       .from('apple_wellness')
       .select('*')
@@ -438,7 +484,15 @@ export async function syncWorkouts(userId, lastSyncedAt = null) {
 
   let workouts = [];
   if (useMock) {
-    return { synced: 0, workouts: 0 };
+    const mock = mockAppleHealthData();
+    workouts = mock.workouts.map((w) => ({
+      start: w.start,
+      end: w.end,
+      distance: w.distance ?? 0,
+      calories: w.calories ?? 0,
+      sourceName: 'Simulator',
+      duration: w.duration ?? (new Date(w.end) - new Date(w.start)) / 1000,
+    }));
   } else {
     try {
       const samples = await getWorkoutSamples({ type: 'Running', startDate, endDate });
@@ -456,6 +510,22 @@ export async function syncWorkouts(userId, lastSyncedAt = null) {
     }
   }
 
+  const externalIds = workouts.map((w) => {
+    const start = new Date(w.start);
+    const distanceMeters = Math.round((w.distance ?? 0) * 1000);
+    return `apple_${start.toISOString()}_${distanceMeters}`;
+  });
+  const existingIds = new Set();
+  for (let i = 0; i < externalIds.length; i += 100) {
+    const slice = externalIds.slice(i, i + 100);
+    const { data } = await supabase
+      .from('runs')
+      .select('external_id')
+      .eq('user_id', userId)
+      .in('external_id', slice);
+    if (data) data.forEach((r) => existingIds.add(r.external_id));
+  }
+
   const { data: existingRuns } = await supabase
     .from('runs')
     .select('id, started_at, distance_meters, source')
@@ -469,6 +539,8 @@ export async function syncWorkouts(userId, lastSyncedAt = null) {
     const durationSeconds = Math.round((end - start) / 1000);
     const distanceMeters = (w.distance ?? 0) * 1000;
     const externalId = `apple_${start.toISOString()}_${distanceMeters}`;
+
+    if (existingIds.has(externalId)) continue;
 
     const isDuplicate = (existingRuns || []).some((r) => {
       const rStart = new Date(r.started_at);
@@ -613,6 +685,34 @@ export function mockAppleHealthData() {
     readiness_verdict,
     workouts,
   };
+}
+
+/**
+ * Fill the app with sample wellness and runs for demo/testing (e.g. "Fyll med exempeldata").
+ * Uses the ultra realistic running simulation dataset to upsert ~60 days of wellness
+ * and insert simulated runs with source 'manual', source_app 'Ultra simulation dataset'.
+ * @param {string} userId
+ * @param {Array<object>} [overrideDataset] - Optional array of rows (spreadsheet or camelCase); when provided, used instead of the bundled JSON.
+ */
+export async function fillSampleData(userId, overrideDataset = null) {
+  const windowRows = overrideDataset != null
+    ? getUltraSimulationWindow(overrideDataset.length, overrideDataset)
+    : getUltraSimulationWindow(60);
+  const wellnessRows = buildWellnessRowsFromDataset(userId, windowRows, calculateAppleReadiness);
+  const { error: wellnessError } = await supabase.from('apple_wellness').upsert(wellnessRows, {
+    onConflict: 'user_id,date',
+    ignoreDuplicates: false,
+  });
+  if (wellnessError) throw wellnessError;
+
+  const { runRows, externalIds } = buildRunRowsFromDataset(userId, windowRows);
+  const { toInsert } = await filterExistingRunRows(userId, runRows, externalIds);
+  if (toInsert.length > 0) {
+    const { error: runsError } = await supabase.from('runs').insert(toInsert);
+    if (runsError) throw runsError;
+  }
+
+  return { wellnessDays: wellnessRows.length, runsInserted: toInsert.length };
 }
 
 /**

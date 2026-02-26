@@ -5,7 +5,7 @@ import { useAuth } from './AuthContext';
 const RunnerModeContext = createContext(null);
 
 export function RunnerModeProvider({ children }) {
-  const { user } = useAuth();
+  const { user, profileData } = useAuth();
   const [runnerMode, setRunnerModeLocal] = useState('advanced');
   const [loading, setLoading] = useState(true);
   const [beginnerStartedAt, setBeginnerStartedAt] = useState(null);
@@ -16,6 +16,14 @@ export function RunnerModeProvider({ children }) {
       setLoading(false);
       return;
     }
+    // Use prefetched profile from AuthContext (already loaded in same getSession flow)
+    if (profileData) {
+      if (profileData.runner_mode) setRunnerModeLocal(profileData.runner_mode);
+      if (profileData.beginner_started_at) setBeginnerStartedAt(profileData.beginner_started_at);
+      setLoading(false);
+      return;
+    }
+    // Fallback: fetch if profileData wasn't available
     supabase
       .from('profiles')
       .select('runner_mode, beginner_started_at')
@@ -27,7 +35,7 @@ export function RunnerModeProvider({ children }) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [user?.id]);
+  }, [user?.id, profileData]);
 
   const setRunnerMode = useCallback(async (mode) => {
     if (!user?.id) return;

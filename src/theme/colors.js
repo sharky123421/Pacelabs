@@ -3,19 +3,36 @@
  * Premium dark theme, Apple × health-app inspired.
  */
 export const colors = {
-  // Backgrounds
-  background: '#000000',
-  backgroundSecondary: '#1C1C1E',
-  backgroundTertiary: '#2C2C2E',
+  // Premium neutral surfaces
+  background: '#262A31',
+  backgroundSecondary: '#313640',
+  backgroundTertiary: '#3F4551',
+  surfaceBase: '#252A32',
+  surfaceMuted: '#333944',
+  surfaceElevated: '#454D5A',
 
   // Cards
-  card: '#1C1C1E',
-  cardElevated: '#2C2C2E',
+  card: '#353942',
+  cardElevated: '#444954',
 
-  // Glass surfaces (for frosted-glass cards/inputs)
-  glassSurface: 'rgba(255,255,255,0.06)',
-  glassBorder: 'rgba(255,255,255,0.10)',
-  glassSurfaceLight: 'rgba(255,255,255,0.10)',
+  // Liquid glass materials (high intensity)
+  glassSurface: 'rgba(255,255,255,0.16)',
+  glassSurfaceLight: 'rgba(255,255,255,0.24)',
+  glassFillStrong: 'rgba(255,255,255,0.26)',
+  glassFillSoft: 'rgba(255,255,255,0.14)',
+  glassBorder: 'rgba(255,255,255,0.30)',
+  glassStroke: 'rgba(255,255,255,0.34)',
+  glassHighlight: 'rgba(255,255,255,0.22)',
+  glassHighlightTop: 'rgba(255,255,255,0.34)',
+  glassGlow: 'rgba(255,255,255,0.16)',
+
+  // Floating dock material (light Apple-style; inactive = gray on light)
+  dockFill: 'rgba(255,255,255,0.75)',
+  dockStroke: 'rgba(0,0,0,0.08)',
+  dockActiveFill: 'rgba(255,255,255,0.92)',
+  dockActiveGlow: 'rgba(255,255,255,0.5)',
+  dockActiveAccent: '#1C1C1E',
+  dockInactiveLabel: 'rgba(0,0,0,0.5)',
 
   // Text
   primaryText: '#FFFFFF',
@@ -27,6 +44,16 @@ export const colors = {
   accentLight: 'rgba(255,255,255,0.12)',
   link: '#0A84FF',
 
+  // Neon accents (high saturation, used on details only)
+  neonCyan: '#00E5FF',
+  neonMagenta: '#E040FB',
+  neonGreen: '#00E676',
+  neonOrange: '#FF9100',
+  neonCyanMuted: 'rgba(0,229,255,0.35)',
+  neonMagentaMuted: 'rgba(224,64,251,0.35)',
+  neonRed: '#FF5252',
+  linkNeon: '#00E5FF',
+
   // Semantic
   success: '#30D158',
   successLight: 'rgba(48,209,88,0.15)',
@@ -36,9 +63,9 @@ export const colors = {
   destructiveLight: 'rgba(255,69,58,0.15)',
 
   // UI chrome
-  divider: 'rgba(255,255,255,0.10)',
-  tabBar: '#000000',
-  tabBarBorder: 'rgba(255,255,255,0.08)',
+  divider: 'rgba(255,255,255,0.14)',
+  tabBar: '#30333A',
+  tabBarBorder: 'rgba(255,255,255,0.20)',
 
   // Integrations
   stravaOrange: '#FC4C02',

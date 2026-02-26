@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, Suspense } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,13 @@ import {
   TouchableOpacity,
   RefreshControl,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { useRunnerMode } from '../contexts/RunnerModeContext';
 import { colors, typography, spacing, theme } from '../theme';
-import { PrimaryButton } from '../components';
-import { CoachChatScreen } from './CoachChatScreen';
+import { PrimaryButton, GlassCard } from '../components';
+const CoachChatScreen = React.lazy(() => import('./CoachChatScreen').then(m => ({ default: m.CoachChatScreen })));
 import { supabase } from '../lib/supabase';
 
 const FEELINGS = [
@@ -157,7 +158,7 @@ export function BeginnerTodayScreen() {
         )}
 
         {/* FEELING CHECK-IN */}
-        <View style={styles.card}>
+        <GlassCard style={styles.card}>
           <Text style={styles.cardTitle}>How are you feeling today?</Text>
           <View style={styles.feelingRow}>
             {FEELINGS.map((f) => (
@@ -170,10 +171,10 @@ export function BeginnerTodayScreen() {
               </TouchableOpacity>
             ))}
           </View>
-        </View>
+        </GlassCard>
 
         {/* TODAY'S SESSION */}
-        <View style={styles.sessionCard}>
+        <GlassCard style={styles.sessionCard}>
           <View style={styles.sessionBadge}>
             <Text style={styles.sessionBadgeText}>TODAY'S SESSION</Text>
           </View>
@@ -181,18 +182,18 @@ export function BeginnerTodayScreen() {
           <Text style={styles.sessionDuration}>{todaySession.duration}</Text>
           <Text style={styles.sessionInstruction}>{todaySession.instruction}</Text>
           <PrimaryButton title="Let's go! \u2192" onPress={() => Alert.alert('Time to run!', 'GPS tracking coming soon. Go run your session and log it when you get back!')} style={styles.sessionBtn} />
-        </View>
+        </GlassCard>
 
         {/* PROGRESS BAR */}
-        <View style={styles.progressCard}>
+        <GlassCard style={styles.progressCard}>
           <Text style={styles.progressTitle}>Week {weekNumber} of 8 \u2014 you're {progressPercent}% there!</Text>
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
           </View>
-        </View>
+        </GlassCard>
 
         {/* MILESTONE CARD */}
-        <View style={styles.card}>
+        <GlassCard style={styles.card}>
           <Text style={styles.cardTitle}>Your milestones</Text>
           {MILESTONE_ITEMS.map((m) => (
             <View key={m.key} style={styles.milestoneRow}>
@@ -200,10 +201,10 @@ export function BeginnerTodayScreen() {
               <Text style={[styles.milestoneLabel, m.done && styles.milestoneDone]}>{m.label}</Text>
             </View>
           ))}
-        </View>
+        </GlassCard>
 
         {/* ACTIVITY SUMMARY */}
-        <View style={styles.card}>
+        <GlassCard style={styles.card}>
           <Text style={styles.cardTitle}>Your activity</Text>
           <View style={styles.activityRow}>
             <View style={styles.activityBlock}>
@@ -215,7 +216,7 @@ export function BeginnerTodayScreen() {
               <Text style={styles.activityLabel}>This month</Text>
             </View>
           </View>
-        </View>
+        </GlassCard>
       </ScrollView>
 
       {/* Coach FAB */}
@@ -223,7 +224,11 @@ export function BeginnerTodayScreen() {
         <Text style={styles.coachFabText}>AI</Text>
       </TouchableOpacity>
 
-      <CoachChatScreen visible={coachChatVisible} onClose={() => setCoachChatVisible(false)} />
+      {coachChatVisible && (
+        <Suspense fallback={<ActivityIndicator style={{ flex: 1 }} />}>
+          <CoachChatScreen visible={coachChatVisible} onClose={() => setCoachChatVisible(false)} />
+        </Suspense>
+      )}
     </SafeAreaView>
   );
 }

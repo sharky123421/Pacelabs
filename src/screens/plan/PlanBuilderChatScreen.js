@@ -57,15 +57,28 @@ export function PlanBuilderChatScreen({ navigation, route }) {
       try {
         const opening = await getPlanBuilderOpening(userData, coachingAnalysis);
         if (cancelled) return;
-        setMessages([
-          {
-            id: 'opening',
-            role: 'assistant',
-            content: opening.message,
-            chips: opening.chips || [],
-          },
-        ]);
-        setChips(opening.chips || []);
+        const chips = opening.chips || [];
+        if (opening.zonesAndPhilosophy) {
+          setMessages([
+            { id: 'opening', role: 'assistant', content: opening.message },
+            {
+              id: 'zones-philosophy',
+              role: 'assistant',
+              content: opening.zonesAndPhilosophy,
+              chips,
+            },
+          ]);
+        } else {
+          setMessages([
+            {
+              id: 'opening',
+              role: 'assistant',
+              content: opening.message,
+              chips,
+            },
+          ]);
+        }
+        setChips(chips);
         setPhase(opening.phase || 'question');
       } catch (e) {
         if (!cancelled) {
