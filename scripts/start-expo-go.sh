@@ -17,7 +17,7 @@ fi
 export CI=false
 export REACT_NATIVE_PACKAGER_HOSTNAME=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
 export EXPO_NO_TELEMETRY=1
-export EXPO_OFFLINE=1
+# EXPO_OFFLINE=1 removed – can cause Metro to hang on startup
 
 # Clean stale Metro temp caches that can cause startup hangs.
 tmp_root="${TMPDIR:-/tmp}"
