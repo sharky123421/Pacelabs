@@ -14,7 +14,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { useRunnerMode } from '../contexts/RunnerModeContext';
 import { colors, typography, spacing, theme } from '../theme';
 import { PrimaryButton, GlassCard } from '../components';
-const CoachChatScreen = React.lazy(() => import('./CoachChatScreen').then(m => ({ default: m.CoachChatScreen })));
+const CoachChatScreen = React.lazy(() =>
+  import('./CoachChatScreen').then((m) => ({
+    default: m.CoachChatScreen ?? function Missing() { return null; },
+  }))
+);
 import { supabase } from '../lib/supabase';
 
 const FEELINGS = [
@@ -137,7 +141,7 @@ export function BeginnerTodayScreen() {
             <Text style={styles.dayCounter}>Day {dayNumber} of your journey \ud83c\udfc3</Text>
           </View>
           <TouchableOpacity style={styles.askCoachBtn} onPress={() => setCoachChatVisible(true)}>
-            <Text style={styles.askCoachText}>Ask coach</Text>
+            <Text style={styles.askCoachText}>Ask Coach BigBenjamin</Text>
           </TouchableOpacity>
         </View>
 

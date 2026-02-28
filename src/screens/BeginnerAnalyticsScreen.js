@@ -179,7 +179,7 @@ export function BeginnerAnalyticsScreen() {
           <Text style={styles.encouragementText}>
             "Every run you complete makes the next one easier. You're doing amazing." \ud83c\udf1f
           </Text>
-          <Text style={styles.encouragementAuthor}>\u2014 Your AI Coach</Text>
+          <Text style={styles.encouragementAuthor}>\u2014 Coach BigBenjamin</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

@@ -11,7 +11,7 @@ import {
 import { colors, typography, spacing, theme } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOnboardingProgress, updateOnboardingPayload, setOnboardingStep, ONBOARDING_STEPS } from '../../lib/onboarding';
-import { PrimaryButton } from '../../components';
+import { PrimaryButton, TimeWheelPicker } from '../../components';
 import { QUESTIONS, TOTAL_QUESTIONS, BEGINNER_TRIGGERS } from './onboardingQuestions';
 import { BEGINNER_QUESTIONS, TOTAL_BEGINNER_QUESTIONS } from './beginnerQuestions';
 
@@ -58,7 +58,7 @@ export function OnboardingQuestionnaireScreen({ route, navigation }) {
   const q = questions[index];
   const progressCount = step;
   const isSkippable = q?.skippable;
-  const canContinue = (q?.type === 'cards' || q?.type === 'grid') ? !!selected : true;
+  const canContinue = (q?.type === 'cards' || q?.type === 'grid') ? !!selected : (q?.type === 'goal_time' ? !!answers[q?.id] : true);
   const isLast = step >= totalQ;
 
   useEffect(() => {
@@ -255,13 +255,9 @@ export function OnboardingQuestionnaireScreen({ route, navigation }) {
     if (q.type === 'goal_time') {
       return (
         <View>
-          <TextInput
-            style={styles.dateInput}
-            placeholder="e.g. 1:45:00"
-            placeholderTextColor={colors.secondaryText}
-            value={answers[q.id] || ''}
-            onChangeText={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))}
-            keyboardType="numbers-and-punctuation"
+          <TimeWheelPicker
+            value={answers[q.id] && answers[q.id] !== 'Just finish' ? answers[q.id] : '0:00:00'}
+            onChange={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))}
           />
           {q.justFinish && (
             <TouchableOpacity style={styles.noDateBtn} onPress={() => setAnswers((a) => ({ ...a, [q.id]: 'Just finish' }))}>

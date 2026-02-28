@@ -188,7 +188,7 @@ export function AnalyticsScreen() {
         {/* AI COACHING INSIGHTS */}
         {coachingSummary?.bottleneck && (
           <View style={styles.section}>
-            <Text style={SECTION_TITLE}>AI COACHING INSIGHTS</Text>
+            <Text style={SECTION_TITLE}>COACH BIGBENJAMIN INSIGHTS</Text>
             <GlassCard variant="elevated" style={styles.coachingCard}>
               <View style={styles.coachingHeader}>
                 <View style={styles.coachingHeaderText}>
@@ -217,7 +217,7 @@ export function AnalyticsScreen() {
               <Text style={styles.coachingEvidence}>{coachingSummary.bottleneck.evidence}</Text>
               {coachingSummary.philosophy && (
                 <View style={styles.coachingPhilosophy}>
-                  <Text style={styles.coachingPhLabel}>What AI is targeting</Text>
+                  <Text style={styles.coachingPhLabel}>What Coach BigBenjamin is targeting</Text>
                   <Text style={styles.coachingPhValue}>
                     {coachingSummary.philosophy.mode?.replace(/_/g, ' ')?.replace(/\b\w/g, (c) => c.toUpperCase())}
                   </Text>

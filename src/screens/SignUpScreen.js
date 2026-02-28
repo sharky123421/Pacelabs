@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { PrimaryButton, SecondaryButton, Input, DividerWithText, SocialButton } from '../components';
 import { useAuth } from '../contexts/AuthContext';
-import { signInWithApple, signInWithGoogle } from '../lib/authHelpers';
 import { isExpoGo } from '../lib/expoGo';
 import { colors, typography, spacing } from '../theme';
 
@@ -67,6 +66,7 @@ export function SignUpScreen({ navigation }) {
   };
 
   const handleApple = async () => {
+    const { signInWithApple } = await import('../lib/authHelpers');
     const result = await signInWithApple(signInWithIdToken);
     if (result.available === false) return;
     if (result.cancelled) return;
@@ -79,6 +79,7 @@ export function SignUpScreen({ navigation }) {
 
   const handleGoogle = async () => {
     setLoading(true);
+    const { signInWithGoogle } = await import('../lib/authHelpers');
     const result = await signInWithGoogle(signInWithOAuth, setSession);
     setLoading(false);
     if (result.error) Alert.alert('Google Sign In', result.error);

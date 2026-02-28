@@ -61,10 +61,35 @@ Deno.serve(async (req) => {
     const trackAccess = (prefs.trackAccess as boolean) ?? (payload.track_access as boolean) ?? true;
     const preferredSessions = (prefs.preferredSessions as string[]) || (payload.session_preferences as string[]) || [];
 
+    // Goal from Plan Builder (user's chosen distance) — never default to marathon
+    const goalMap: Record<string, string> = {
+      "5K": "5K", "5k": "5K", "Run a 5K": "5K", "run a 5k": "5K",
+      "10K": "10K", "10k": "10K", "Run a 10K": "10K", "run a 10k": "10K",
+      "Half Marathon": "Half Marathon", "half marathon": "Half Marathon", "half": "Half Marathon",
+      "Marathon": "Marathon", "marathon": "Marathon",
+      "Ultra": "Ultra", "ultra": "Ultra",
+      "General fitness": "General fitness", "fitness": "General fitness",
+      "Get faster": "General fitness", "Run more consistently": "General fitness",
+    };
+    let prefsGoalRaw = ((prefs.goal as string) || (payload.goal as string) || state.race_distance || "fitness") as string;
+    prefsGoalRaw = (prefsGoalRaw || "").trim();
+    const chosenGoalLabel = goalMap[prefsGoalRaw] || goalMap[prefsGoalRaw.toLowerCase()] || prefsGoalRaw;
+    const raceDistanceForState = chosenGoalLabel === "5K" ? "5k"
+      : chosenGoalLabel === "10K" ? "10k"
+      : chosenGoalLabel === "Half Marathon" ? "half"
+      : chosenGoalLabel === "Marathon" ? "marathon"
+      : chosenGoalLabel === "Ultra" ? "ultra"
+      : "fitness";
+
     // ── Derive total weeks ────────────────────────────────────────────────
+    const prefsRaceDate = prefs.raceDate as string | undefined;
+    const weeksFromPrefs = prefsRaceDate
+      ? Math.max(0, Math.ceil((new Date(prefsRaceDate).getTime() - Date.now()) / 604800000))
+      : null;
     let totalWeeks = 12;
-    if (state.weeks_to_race && state.weeks_to_race > 0) {
-      totalWeeks = Math.min(24, state.weeks_to_race);
+    const effectiveWeeksToRace = weeksFromPrefs ?? state.weeks_to_race;
+    if (effectiveWeeksToRace && effectiveWeeksToRace > 0) {
+      totalWeeks = Math.min(24, effectiveWeeksToRace);
     }
     if (philosophy?.typical_duration_weeks) {
       totalWeeks = Math.max(totalWeeks, philosophy.typical_duration_weeks);
@@ -106,14 +131,30 @@ TSB: ${state.tsb ?? "—"}
 Longest recent run: ${state.longest_run_recent_km ?? "—"}km
 Longest run ever: ${state.longest_run_ever_km ?? "—"}km
 
-GOAL:
-Race distance: ${state.race_distance ?? "fitness"}
+GOAL (use this exact goal for the plan — do NOT default to marathon):
+Chosen goal: ${chosenGoalLabel}
+Race distance key: ${raceDistanceForState}
 Weeks to race: ${state.weeks_to_race ?? "—"}
-Goal time: ${formatTime(state.goal_time_seconds)}
+Goal time: ${(prefs.goalTime as string) || formatTime(state.goal_time_seconds)}
 Current predicted time: ${formatTime(state.current_predicted_time)}
 Gap to close: ${state.time_gap_seconds ? `${state.time_gap_seconds}s` : "—"}
 Plan phase: ${state.plan_phase ?? "base"}
 Plan week: ${state.plan_week ?? 1} of ${state.plan_total_weeks ?? totalWeeks}
+
+DISTANCE-SPECIFIC PLAN STRUCTURE (the plan layout MUST follow the chosen distance — do not use the same layout for 5K and marathon):
+- 5K: Long run cap 60–90 min (~10–12 km). 2–3 quality sessions per week. Emphasis on intervals/VO2 and 5K race-pace work. Taper 1–2 weeks. Typical total length 8–12 weeks.
+- 10K: Long run build to ~90–120 min (14–18 km). Mix of threshold and VO2; 10K pace segments. Taper ~2 weeks. Typical 10–14 weeks.
+- Half Marathon: Long run build to ~21 km. Threshold + some intervals; half-marathon pace work. Taper 2–3 weeks. Typical 12–16 weeks.
+- Marathon: Long run build to 28–35 km; marathon-pace blocks in long runs; more aerobic volume. Taper 2–3 weeks. Typical 16–24 weeks.
+- Ultra: Long runs by time/distance for target event; back-to-back long runs where appropriate; time on feet. Typical 24+ weeks if needed.
+The structure of the plan (long run length, number and type of key sessions, phase lengths, taper) MUST follow the chosen distance above. Typical plan length by distance: 5K 8–12 weeks, 10K 10–14 weeks, Half 12–16 weeks, Marathon 16–24 weeks, Ultra 24+ weeks — use these unless the user's race date (weeks to race) forces a different length.
+
+PHYSIOLOGY-BASED EMPHASIS (use ATHLETE PROFILE and PHYSIOLOGICAL DIAGNOSIS above to set emphasis within the distance structure):
+- Use all provided data (VO2max, threshold pace, bottleneck, secondary signals, volume, CTL/ATL) to decide which energy system gets more focus.
+- High VO2max + weak threshold (or bottleneck weak_lactate_threshold): prioritize threshold/tempo and cruise intervals; do not over-prescribe VO2max intervals.
+- Weak aerobic base (weak_aerobic_base): more easy mileage and long runs; limit hard sessions.
+- Race-specific endurance (poor_race_specific_endurance): progressive long run build and race-pace work appropriate to the chosen distance (5K pace vs marathon pace).
+The layout is defined by the goal distance; the emphasis (which energy system gets more volume/focus) is defined by this athlete's bottleneck and physiology.
 
 INJURY: ${state.current_issue ?? "none"}
 Vulnerable areas: ${JSON.stringify(state.vulnerable_areas ?? [])}
@@ -132,16 +173,17 @@ Threshold: ${formatPace(state.threshold_pace_sec_per_km)} /km ±5 seconds
 Hard/VO2: ${formatPace((state.threshold_pace_sec_per_km ?? 292) - 25)}–${formatPace((state.threshold_pace_sec_per_km ?? 292) - 15)}/km
 
 CRITICAL INSTRUCTIONS:
-1. Every session MUST target the detected bottleneck: ${bottleneck?.primary_bottleneck ?? "balanced_fitness"}
-2. NEVER include forbidden workout types: ${JSON.stringify(philosophy?.forbidden_workout_types ?? [])}
-3. Use ONLY the pace zones defined above — never generic paces
-4. Every coachNotes field must reference THIS athlete's specific data
-5. Total weekly volume must be within 5% of ${philosophy?.volume_target_km ?? state.weekly_km_4week_avg ?? 40}km
-6. Account for injury: ${state.current_issue ?? "none reported"}
-7. Generate ${totalWeeks} weeks of training
-8. Every 4th week should be a recovery week (25-30% volume reduction)
-9. Only schedule sessions on: ${trainingDays.join(", ")}
-10. Long run always on: ${longRunDay}
+1. GOAL-SPECIFIC PLAN: The athlete chose "${chosenGoalLabel}". You MUST use this exact goal everywhere. planName: use a title that includes this goal (e.g. "5K Speed Plan", "10K Build", "Half Marathon Endurance", "Marathon Endurance Build", "Ultra Preparation"). goal field in JSON: set to "${chosenGoalLabel}". coachSummary: write 3-4 sentences about THIS goal only — e.g. "for the 5K" or "for your marathon", never "for the marathon" when the goal is 5K/10K/half/ultra. Long run and race-pace work must match the chosen distance. Do NOT default to marathon.
+2. STRUCTURE vs EMPHASIS: The plan skeleton (long run progression, phase lengths, taper, number of key sessions) must be distance-appropriate for "${chosenGoalLabel}" as in DISTANCE-SPECIFIC PLAN STRUCTURE. Within that structure, sessions must address the detected bottleneck ${bottleneck?.primary_bottleneck ?? "balanced_fitness"} — e.g. more threshold work if threshold is the weakness, more easy/long run if aerobic base is weak. Do not follow the bottleneck in a distance-agnostic way; keep the layout defined by the goal distance and the emphasis by physiology.
+3. NEVER include forbidden workout types: ${JSON.stringify(philosophy?.forbidden_workout_types ?? [])}
+4. Use ONLY the pace zones defined above — never generic paces
+5. Every coachNotes field must reference THIS athlete's specific data
+6. Total weekly volume must be within 5% of ${philosophy?.volume_target_km ?? state.weekly_km_4week_avg ?? 40}km
+7. Account for injury: ${state.current_issue ?? "none reported"}
+8. Generate ${totalWeeks} weeks of training
+9. Every 4th week should be a recovery week (25-30% volume reduction)
+10. Only schedule sessions on: ${trainingDays.join(", ")}
+11. Long run always on: ${longRunDay}
 
 Return JSON:
 {
@@ -228,12 +270,22 @@ Return JSON:
       .eq("user_id", userId)
       .eq("is_active", true);
 
+    const savedGoal = chosenGoalLabel !== "General fitness" ? chosenGoalLabel : ((planJson.goal as string) || chosenGoalLabel);
+    const aiPlanName = (planJson.planName as string) || "";
+    const goalLower = chosenGoalLabel.toLowerCase();
+    const nameMatchesGoal = goalLower === "5k" ? aiPlanName.includes("5K") || aiPlanName.includes("5k")
+      : goalLower === "10k" ? aiPlanName.includes("10K") || aiPlanName.includes("10k")
+      : goalLower === "half marathon" ? /half|21\.1|21k/i.test(aiPlanName)
+      : goalLower === "marathon" ? /marathon|42\.2|42k/i.test(aiPlanName)
+      : goalLower === "ultra" ? /ultra/i.test(aiPlanName)
+      : true;
+    const savedPlanName = (aiPlanName.trim() && nameMatchesGoal) ? aiPlanName.trim() : `${chosenGoalLabel} Plan`;
     const { data: planRow, error: planError } = await sb
       .from("training_plans")
       .insert({
         user_id: userId,
-        plan_name: (planJson.planName as string) || "AI Coaching Plan",
-        goal: (planJson.goal as string) || state.race_distance,
+        plan_name: savedPlanName,
+        goal: savedGoal,
         race_date: raceDate,
         goal_time: (planJson.goalTime as string) || formatTime(state.goal_time_seconds),
         total_weeks: (planJson.totalWeeks as number) || totalWeeks,
@@ -310,6 +362,17 @@ Return JSON:
       const { error: sessErr } = await sb.from("sessions").insert(sessionRows);
       if (sessErr) throw new Error(sessErr.message);
     }
+
+    // Update athlete_state so detect-bottleneck and coaching focus use the chosen goal (e.g. "need 8km+ for 5k" not "for marathon")
+    const athleteStateUpdate: Record<string, unknown> = {
+      race_distance: raceDistanceForState,
+      updated_at: new Date().toISOString(),
+    };
+    if (prefsRaceDate) {
+      athleteStateUpdate.race_date = prefsRaceDate.slice(0, 10);
+      athleteStateUpdate.weeks_to_race = weeksFromPrefs;
+    }
+    await sb.from("athlete_state").update(athleteStateUpdate).eq("user_id", userId);
 
     return jsonResponse({
       ok: true,

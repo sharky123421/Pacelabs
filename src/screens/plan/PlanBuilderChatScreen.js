@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, typography, spacing, theme } from '../../theme';
-import { PrimaryButton } from '../../components';
+import { PrimaryButton, TimeWheelPicker } from '../../components';
 import {
   getPlanBuilderOpening,
   sendPlanBuilderReply,
@@ -34,6 +34,8 @@ export function PlanBuilderChatScreen({ navigation, route }) {
   const [inputText, setInputText] = useState('');
   const [chips, setChips] = useState([]);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showGoalTimePicker, setShowGoalTimePicker] = useState(false);
+  const [goalTimeValue, setGoalTimeValue] = useState('0:45:00');
   const [selectedDays, setSelectedDays] = useState([]);
   const [phase, setPhase] = useState('question');
   const [userAnswers, setUserAnswers] = useState({});
@@ -109,6 +111,7 @@ export function PlanBuilderChatScreen({ navigation, route }) {
       setMessages((prev) => [...prev, userMsg]);
       setChips([]);
       setShowDatePicker(false);
+      setShowGoalTimePicker(false);
       setInputText('');
       setSending(true);
       setError(null);
@@ -128,11 +131,13 @@ export function PlanBuilderChatScreen({ navigation, route }) {
             content: next.message,
             chips: next.chips || [],
             showDatePicker: next.showDatePicker,
+            showGoalTimePicker: next.showGoalTimePicker,
             userAnswers: next.userAnswers,
           },
         ]);
         setChips(next.chips || []);
         setShowDatePicker(!!next.showDatePicker);
+        setShowGoalTimePicker(!!next.showGoalTimePicker);
         if (next.phase === 'summary' && next.userAnswers) {
           setPhase('summary');
           setUserAnswers(next.userAnswers);
@@ -166,12 +171,25 @@ export function PlanBuilderChatScreen({ navigation, route }) {
     setSelectedDays([]);
   }, [selectedDays, sendReply]);
 
+  const normalizeGoal = useCallback((raw) => {
+    if (!raw || typeof raw !== 'string') return raw;
+    const s = raw.trim();
+    if (/run a 5k|5k/i.test(s)) return '5K';
+    if (/run a 10k|10k/i.test(s)) return '10K';
+    if (/half|halvmaraton/i.test(s)) return 'Half Marathon';
+    if (/marathon/i.test(s)) return 'Marathon';
+    if (/ultra/i.test(s)) return 'Ultra';
+    return s;
+  }, []);
+
   const handleGenerate = useCallback(() => {
+    const answers = phase === 'summary' ? userAnswers : {};
+    const goal = normalizeGoal(answers.goal);
     navigation.replace('PlanBuilderGeneration', {
       userData,
-      userAnswers: phase === 'summary' ? userAnswers : {},
+      userAnswers: { ...answers, goal: goal || answers.goal },
     });
-  }, [navigation, userData, phase, userAnswers]);
+  }, [navigation, userData, phase, userAnswers, normalizeGoal]);
 
   const lastMessage = messages[messages.length - 1];
   const isSummary = phase === 'summary' && lastMessage?.role === 'assistant';
@@ -184,7 +202,7 @@ export function PlanBuilderChatScreen({ navigation, route }) {
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={PLAN_PURPLE} />
-          <Text style={styles.loadingText}>Preparing your coach...</Text>
+          <Text style={styles.loadingText}>Preparing Coach BigBenjamin...</Text>
         </View>
       </SafeAreaView>
     );
@@ -201,7 +219,7 @@ export function PlanBuilderChatScreen({ navigation, route }) {
           <Text style={styles.headerBack}>‹</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>AI Coach</Text>
+          <Text style={styles.headerTitle}>Coach BigBenjamin</Text>
           <Text style={styles.headerSubtitle}>Powered by Groq</Text>
         </View>
         <View style={styles.headerBtn} />
@@ -233,7 +251,7 @@ export function PlanBuilderChatScreen({ navigation, route }) {
                   <Text style={styles.avatarText}>P</Text>
                 </View>
                 <View style={styles.planBubble}>
-                  <Text style={styles.planLabel}>AI Coach</Text>
+                  <Text style={styles.planLabel}>Coach BigBenjamin</Text>
                   <Text style={styles.bubbleText}>{msg.content}</Text>
                 </View>
               </View>
@@ -296,6 +314,17 @@ export function PlanBuilderChatScreen({ navigation, route }) {
               }}
             >
               <Text style={styles.dateConfirmText}>Confirm date</Text>
+            </TouchableOpacity>
+          </View>
+        ) : showGoalTimePicker ? (
+          <View style={styles.datePickerCard}>
+            <Text style={styles.datePickerLabel}>Goal time</Text>
+            <TimeWheelPicker value={goalTimeValue} onChange={setGoalTimeValue} />
+            <TouchableOpacity
+              style={styles.dateConfirmBtn}
+              onPress={() => sendReply(goalTimeValue)}
+            >
+              <Text style={styles.dateConfirmText}>Bekräfta tid</Text>
             </TouchableOpacity>
           </View>
         ) : chips.length > 0 && !showDaySelector && !isSummary ? (

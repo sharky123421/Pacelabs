@@ -1,6 +1,5 @@
 import React, { Suspense } from 'react';
-import { TouchableOpacity, Text, ActivityIndicator, StyleSheet, View, Pressable, Platform } from 'react-native';
-import { BlurView } from 'expo-blur';
+import { TouchableOpacity, Text, ActivityIndicator, StyleSheet, View, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -15,11 +14,18 @@ import { PlanScreen } from '../screens/PlanScreen';
 import { SessionDetailScreen } from '../screens/SessionDetailScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { useRunnerMode } from '../contexts/RunnerModeContext';
-import { colors, typography, theme } from '../theme';
+import { colors, typography } from '../theme';
 
-const PlanBuilderWelcomeScreen = React.lazy(() => import('../screens/plan/PlanBuilderWelcomeScreen').then(m => ({ default: m.PlanBuilderWelcomeScreen })));
-const PlanBuilderChatScreen = React.lazy(() => import('../screens/plan/PlanBuilderChatScreen').then(m => ({ default: m.PlanBuilderChatScreen })));
-const PlanBuilderGenerationScreen = React.lazy(() => import('../screens/plan/PlanBuilderGenerationScreen').then(m => ({ default: m.PlanBuilderGenerationScreen })));
+function lazyPlanScreen(importFn, name) {
+  return React.lazy(() =>
+    importFn().then((m) => ({
+      default: m[name] ?? function Missing() { return <View style={{ flex: 1 }} />; },
+    }))
+  );
+}
+const PlanBuilderWelcomeScreen = lazyPlanScreen(() => import('../screens/plan/PlanBuilderWelcomeScreen'), 'PlanBuilderWelcomeScreen');
+const PlanBuilderChatScreen = lazyPlanScreen(() => import('../screens/plan/PlanBuilderChatScreen'), 'PlanBuilderChatScreen');
+const PlanBuilderGenerationScreen = lazyPlanScreen(() => import('../screens/plan/PlanBuilderGenerationScreen'), 'PlanBuilderGenerationScreen');
 
 const Tab = createBottomTabNavigator();
 const RunsStack = createNativeStackNavigator();
@@ -97,10 +103,6 @@ function FloatingGlassTabBar({ state, navigation, descriptors }) {
   return (
     <View style={[floatingStyles.wrapper, { paddingBottom: insets.bottom }]} pointerEvents="box-none">
       <View style={floatingStyles.pill}>
-        {Platform.OS === 'ios' ? (
-          <BlurView intensity={55} tint="light" style={StyleSheet.absoluteFill} />
-        ) : null}
-        <View style={[floatingStyles.pillFill, Platform.OS === 'android' && floatingStyles.pillFillAndroid]} />
         <View style={floatingStyles.tabsRow}>
           {state.routes.map((route, index) => {
             const isFocused = state.index === index;
@@ -152,24 +154,8 @@ const floatingStyles = StyleSheet.create({
     paddingTop: 12,
   },
   pill: {
-    borderRadius: theme.radius.sheet,
-    overflow: 'hidden',
-    borderWidth: 0.5,
-    borderColor: 'rgba(0,0,0,0.08)',
     minHeight: TAB_BAR_HEIGHT,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  pillFill: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.28)',
-    borderRadius: theme.radius.sheet,
-  },
-  pillFillAndroid: {
-    backgroundColor: 'rgba(255,255,255,0.62)',
+    backgroundColor: 'transparent',
   },
   tabsRow: {
     flexDirection: 'row',

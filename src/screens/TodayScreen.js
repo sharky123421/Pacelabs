@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo, Suspense } from 'react';
 import {
   View,
   Text,
@@ -13,10 +13,15 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigation } from '@react-navigation/native';
 import { colors, typography, spacing, theme } from '../theme';
 import { PrimaryButton, SecondaryButton, SkeletonToday, GlassCard } from '../components';
 import { hapticLight } from '../lib/haptics';
-const CoachChatScreen = React.lazy(() => import('./CoachChatScreen').then(m => ({ default: m.CoachChatScreen })));
+const CoachChatScreen = React.lazy(() =>
+  import('./CoachChatScreen').then((m) => ({
+    default: m.CoachChatScreen ?? function Missing() { return null; },
+  }))
+);
 import { getAppleHealthConnection, fullSync } from '../services/appleHealth';
 import { supabase } from '../lib/supabase';
 import {
@@ -59,6 +64,12 @@ function getTodayDateString() {
   });
 }
 
+function getSessionBadgeLabel(type) {
+  if (!type) return 'EASY RUN';
+  if (type === 'long_run_with_race_pace_segments') return 'LONG RUN';
+  return type.toUpperCase().replace(' ', ' RUN');
+}
+
 const VERDICT_CONFIG = {
   ready: { label: 'Ready to train hard', color: colors.success },
   easy: { label: 'Take it easy today', color: colors.warning },
@@ -72,7 +83,7 @@ const READINESS_VERDICT_TO_KEY = {
 
 const DEFAULT_SESSION = {
   type: 'easy',
-  badge: 'EASY RUN',
+  badge: 'DAGENS PASS',
   distance: '--',
   pace: '--',
   hrZone: '--',
@@ -98,6 +109,45 @@ function getWeatherAdvice(weatherStr) {
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const SLEEP_LABELS = ['Very poor', 'Poor', 'Average', 'Good', 'Great'];
+
+/** Sleep stage colors for diagram (Apple-style). */
+const SLEEP_STAGE_COLORS = {
+  deep: '#5E5CE6',
+  rem: '#BF5AF2',
+  core: '#0A84FF',
+  awake: 'rgba(255,255,255,0.25)',
+};
+
+/** Build segments for stacked sleep bar from apple_wellness. Returns { segments: [{ label, seconds, color }], totalSeconds }. */
+function getSleepStageSegments(wellness) {
+  if (!wellness) return { segments: [], totalSeconds: 0 };
+  const deep = Number(wellness.sleep_deep_seconds) || 0;
+  const rem = Number(wellness.sleep_rem_seconds) || 0;
+  const core = Number(wellness.sleep_core_seconds) || 0;
+  const awake = Number(wellness.sleep_awake_seconds) || 0;
+  const total = Number(wellness.sleep_duration_seconds) || deep + rem + core + awake;
+  const segments = [];
+  if (deep > 0) segments.push({ label: 'Deep', seconds: deep, color: SLEEP_STAGE_COLORS.deep });
+  if (rem > 0) segments.push({ label: 'REM', seconds: rem, color: SLEEP_STAGE_COLORS.rem });
+  if (core > 0) segments.push({ label: 'Core', seconds: core, color: SLEEP_STAGE_COLORS.core });
+  if (awake > 0) segments.push({ label: 'Awake', seconds: awake, color: SLEEP_STAGE_COLORS.awake });
+  const totalSeconds = total || segments.reduce((s, seg) => s + seg.seconds, 0);
+  return { segments, totalSeconds };
+}
+
+/** First upcoming non-rest session from plan (date >= today). */
+function getNextPassFromPlan(weekSessions) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  return (weekSessions || [])
+    .filter((s) => s.type !== 'rest' && s.date >= todayStr)
+    .sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
+}
+
+/** English date for "next workout" label, e.g. "Saturday, March 1". */
+function formatNextPassDateLabel(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+}
 
 function buildWeekDays(sessions) {
   const today = new Date();
@@ -128,6 +178,7 @@ function buildWeekDays(sessions) {
 
 export function TodayScreen() {
   const { user } = useAuth();
+  const navigation = useNavigation();
   const firstName = user?.user_metadata?.display_name?.split(' ')[0] || user?.user_metadata?.full_name?.split(' ')[0];
   const greeting = getGreeting();
   const dateStr = getTodayDateString();
@@ -294,19 +345,37 @@ export function TodayScreen() {
   const warningLevel = warningUi.warning_level || 'none';
   const showWarningBanner = !!warningUi.show_warning;
 
-  const todaySession = recommended
+  const nextPassFromPlan = useMemo(() => getNextPassFromPlan(weekSessions), [weekSessions]);
+  const nextPassDateLabel = nextPassFromPlan ? formatNextPassDateLabel(nextPassFromPlan.date) : null;
+  const hasSessionToday = recommended && recommended.type !== 'rest';
+  const showNextPassInMainCard = !hasSessionToday && nextPassFromPlan;
+  const showNextPassAsExtraCard = recommended?.type === 'rest' && nextPassFromPlan;
+
+  const todaySession = showNextPassInMainCard && nextPassFromPlan
     ? {
-      type: recommended.type || 'easy',
-      badge: (recommended.type || 'EASY').toUpperCase().replace(' ', ' RUN'),
-      distance: recommended.distance_km != null ? `${recommended.distance_km} km` : '--',
-      pace: [recommended.target_pace_min, recommended.target_pace_max].filter(Boolean).join(' \u2013 ') || '--',
-      hrZone: recommended.target_hr_zone || (recommended.target_hr_max_bpm ? `Max ${recommended.target_hr_max_bpm} bpm` : '--'),
-      briefing: coachMessage?.body ?? reasoning?.summary ?? '',
-      weather: null,
-      completedToday: false,
-      completedDistance: null,
-    }
-    : DEFAULT_SESSION;
+        type: nextPassFromPlan.type || 'easy',
+        badge: getSessionBadgeLabel(nextPassFromPlan.type),
+        distance: nextPassFromPlan.distance_km != null ? `${nextPassFromPlan.distance_km} km` : '--',
+        pace: [nextPassFromPlan.target_pace_min, nextPassFromPlan.target_pace_max].filter(Boolean).join(' \u2013 ') || '--',
+        hrZone: nextPassFromPlan.target_hr_zone || (nextPassFromPlan.target_hr_max_bpm ? `Max ${nextPassFromPlan.target_hr_max_bpm} bpm` : '--'),
+        briefing: nextPassFromPlan.coach_notes || nextPassFromPlan.description || 'From your plan.',
+        weather: null,
+        completedToday: false,
+        completedDistance: null,
+      }
+    : recommended
+      ? {
+          type: recommended.type || 'easy',
+          badge: getSessionBadgeLabel(recommended.type),
+          distance: recommended.distance_km != null ? `${recommended.distance_km} km` : '--',
+          pace: [recommended.target_pace_min, recommended.target_pace_max].filter(Boolean).join(' \u2013 ') || '--',
+          hrZone: recommended.target_hr_zone || (recommended.target_hr_max_bpm ? `Max ${recommended.target_hr_max_bpm} bpm` : '--'),
+          briefing: coachMessage?.body ?? reasoning?.summary ?? '',
+          weather: null,
+          completedToday: false,
+          completedDistance: null,
+        }
+      : DEFAULT_SESSION;
   const sessionColor = SESSION_COLORS[todaySession.type] || colors.linkNeon;
   const isRestDay = todaySession.type === 'rest';
   const isCompletedToday = todaySession.completedToday === true;
@@ -342,7 +411,7 @@ export function TodayScreen() {
             style={styles.askCoachBtn}
             onPress={() => setCoachChatVisible(true)}
           >
-            <Text style={styles.askCoachText}>Ask coach</Text>
+            <Text style={styles.askCoachText}>Ask Coach BigBenjamin</Text>
           </TouchableOpacity>
         </View>
 
@@ -359,70 +428,13 @@ export function TodayScreen() {
           </GlassCard>
         )}
 
-        {/* READINESS */}
+        {/* READINESS — only when watch connected (apple/garmin) */}
+        {readinessState !== 'none' && (
         <GlassCard
           variant="default"
           onPress={() => setRecoveryDetailVisible(true)}
           style={WARNING_BORDER[warningLevel] && { borderWidth: 1.5, borderColor: WARNING_BORDER[warningLevel] }}
         >
-          {readinessState === 'none' && (
-            <>
-              {manualStep === 0 && (
-                <>
-                  <Text style={styles.readinessSubtitle}>How was your sleep last night?</Text>
-                  <View style={styles.scaleRow}>
-                    {SLEEP_LABELS.map((label, i) => (
-                      <TouchableOpacity
-                        key={label}
-                        style={[styles.scaleBtn, manualWellness.sleep_quality === i && styles.scaleBtnSelected]}
-                        onPress={() => setManualWellness((m) => ({ ...m, sleep_quality: i }))}
-                      >
-                        <Text style={[styles.scaleNumber, manualWellness.sleep_quality === i && styles.scaleNumberSelected]}>{i + 1}</Text>
-                        <Text style={[styles.scaleLabel, manualWellness.sleep_quality === i && styles.scaleLabelSelected]}>{label}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </>
-              )}
-              {manualStep === 1 && (
-                <>
-                  <Text style={styles.readinessSubtitle}>How's your energy right now?</Text>
-                  <View style={styles.chipRow}>
-                    {['Very low', 'Low', 'Normal', 'High', 'Very high'].map((label, i) => (
-                      <TouchableOpacity
-                        key={label}
-                        style={[styles.chip, manualWellness.energy === i && styles.chipSelected]}
-                        onPress={() => setManualWellness((m) => ({ ...m, energy: i }))}
-                      >
-                        <Text style={[styles.chipText, manualWellness.energy === i && styles.chipTextSelected]}>{label}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </>
-              )}
-              {manualStep === 2 && (
-                <>
-                  <Text style={styles.readinessSubtitle}>Any muscle soreness or heaviness?</Text>
-                  <View style={styles.chipRow}>
-                    {['Significant', 'Moderate', 'Slight', 'None'].map((label, i) => (
-                      <TouchableOpacity
-                        key={label}
-                        style={[styles.chip, manualWellness.soreness === i && styles.chipSelected]}
-                        onPress={() => setManualWellness((m) => ({ ...m, soreness: i }))}
-                      >
-                        <Text style={[styles.chipText, manualWellness.soreness === i && styles.chipTextSelected]}>{label}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </>
-              )}
-              {manualStep < 2 ? (
-                <PrimaryButton title="Next" onPress={() => setManualStep((s) => s + 1)} style={styles.startBtn} />
-              ) : (
-                <PrimaryButton title="Get my session" onPress={submitManualWellness} style={styles.startBtn} />
-              )}
-            </>
-          )}
           {readinessState === 'garmin' && (
             <>
               <Text style={styles.readinessTitle}>Body Battery / HRV / Sleep / Stress</Text>
@@ -437,6 +449,25 @@ export function TodayScreen() {
           {readinessState === 'apple' && appleWellness && (
             <>
               <Text style={styles.readinessTitle}>HRV / Resting HR / Sleep</Text>
+              {(() => {
+                const { segments, totalSeconds } = getSleepStageSegments(appleWellness);
+                const hasSleep = totalSeconds > 0 && segments.length > 0;
+                return hasSleep ? (
+                  <View style={styles.sleepDiagramWrap}>
+                    <View style={styles.sleepDiagramBar}>
+                      {segments.map((seg) => {
+                        const pct = totalSeconds > 0 ? (seg.seconds / totalSeconds) * 100 : 0;
+                        return (
+                          <View key={seg.label} style={[styles.sleepDiagramSegment, { width: `${pct}%`, backgroundColor: seg.color }]} />
+                        );
+                      })}
+                    </View>
+                    <Text style={styles.sleepDiagramLabel}>
+                      {Math.floor(totalSeconds / 3600)}h {Math.round((totalSeconds % 3600) / 60)}m sleep
+                    </Text>
+                  </View>
+                ) : null;
+              })()}
               <View style={styles.metricChips}>
                 {appleWellness.hrv_last_night != null && (
                   <View style={[styles.chip, appleWellness.hrv_status === 'POOR' && { borderColor: colors.destructive, borderWidth: 1 }]}>
@@ -480,6 +511,7 @@ export function TodayScreen() {
             </Text>
           </View>
         </GlassCard>
+        )}
 
         {/* Warning banner */}
         {showWarningBanner && (warningUi.warning_headline || warningUi.warning_subline) && (
@@ -504,6 +536,9 @@ export function TodayScreen() {
           <View style={styles.errorCard}>
             <Text style={styles.errorCardText}>{aiError}</Text>
             <SecondaryButton title="Retry" onPress={() => { aiFetchedToday.current = false; onRefresh(); }} />
+            {(aiError.includes('401') || aiError.includes('inloggningen')) && (
+              <SecondaryButton title="Open Profile (log out)" onPress={() => { hapticLight(); navigation.navigate('ProfileTab'); }} style={styles.errorCardBtn} />
+            )}
           </View>
         )}
         <GlassCard
@@ -515,22 +550,28 @@ export function TodayScreen() {
           ]}
         >
           <View style={styles.sessionContent}>
-            {aiDecision && action === 'proceed' && userChoice !== 'declined' && (
+            {showNextPassInMainCard && nextPassDateLabel && (
+              <View style={styles.nextWorkoutHeader}>
+                <Text style={styles.nextWorkoutLabel}>Up next</Text>
+                <Text style={styles.nextWorkoutDate}>{nextPassDateLabel}</Text>
+              </View>
+            )}
+            {aiDecision && action === 'proceed' && userChoice !== 'declined' && !showNextPassInMainCard && (
               <View style={[styles.sessionPill, { backgroundColor: colors.success + '15' }]}>
                 <Text style={[styles.sessionPillText, { color: colors.success }]}>Good to go</Text>
               </View>
             )}
-            {action === 'modify' && (
+            {action === 'modify' && !showNextPassInMainCard && (
               <View style={[styles.sessionPill, { backgroundColor: colors.warning + '15' }]}>
                 <Text style={[styles.sessionPillText, { color: colors.warning }]}>{vsOriginal?.reason_short ?? 'Intensity reduced'}</Text>
               </View>
             )}
-            {action === 'replace' && (
+            {action === 'replace' && !showNextPassInMainCard && (
               <View style={[styles.sessionPill, { backgroundColor: colors.warning + '15' }]}>
                 <Text style={[styles.sessionPillText, { color: colors.warning }]}>Session adapted to recovery</Text>
               </View>
             )}
-            {isRestDay ? (
+            {isRestDay && !showNextPassInMainCard ? (
               <>
                 <View style={styles.sessionBadge}>
                   <Text style={styles.sessionBadgeText}>REST DAY</Text>
@@ -587,7 +628,10 @@ export function TodayScreen() {
                     {weatherAdvice ? <Text style={[styles.weatherAdvice, { marginTop: 6 }]}>{weatherAdvice}</Text> : null}
                   </View>
                 )}
-                {userChoice === null && !isRestDay && (
+                {showNextPassInMainCard && nextPassDateLabel && (
+                  <Text style={styles.nextWorkoutSubtitle}>This session is scheduled for {nextPassDateLabel}.</Text>
+                )}
+                {userChoice === null && !isRestDay && !showNextPassInMainCard && (
                   <>
                     {action === 'proceed' && (
                       <>
@@ -644,14 +688,14 @@ export function TodayScreen() {
                           }}
                           style={styles.startBtn}
                         />
-                        <TouchableOpacity onPress={() => Alert.alert('Keep original anyway?', "Your AI coach recommends against this based on your recovery data.", [{ text: 'Take it easy', style: 'cancel' }, { text: 'Train hard anyway', onPress: async () => { setUserChoice('declined'); await saveUserChoice('declined'); } }])}>
+                        <TouchableOpacity onPress={() => Alert.alert('Keep original anyway?', "Coach BigBenjamin recommends against this based on your recovery data.", [{ text: 'Take it easy', style: 'cancel' }, { text: 'Train hard anyway', onPress: async () => { setUserChoice('declined'); await saveUserChoice('declined'); } }])}>
                           <Text style={styles.runAnywayLink}>Keep original anyway</Text>
                         </TouchableOpacity>
                       </>
                     )}
                   </>
                 )}
-                {userChoice !== null && (
+                {userChoice !== null && !showNextPassInMainCard && (
                   <PrimaryButton title="Start Run" onPress={() => Alert.alert('Start Run', 'GPS run tracking will be available in the next update. Log your run manually from the Runs tab after you finish.')} style={styles.startBtn} />
                 )}
               </>
@@ -659,8 +703,87 @@ export function TodayScreen() {
           </View>
         </GlassCard>
 
+        {/* Next workout (extra card when today is rest day) */}
+        {showNextPassAsExtraCard && nextPassFromPlan && nextPassDateLabel && (
+          <GlassCard variant="elevated" style={[styles.sessionCard, styles.nextWorkoutCard, { borderLeftColor: SESSION_COLORS[nextPassFromPlan.type] || colors.linkNeon }]}>
+            <View style={styles.sessionContent}>
+              <View style={styles.nextWorkoutHeader}>
+                <Text style={styles.nextWorkoutLabel}>Up next</Text>
+                <Text style={styles.nextWorkoutDate}>{nextPassDateLabel}</Text>
+              </View>
+              <View style={styles.sessionBadge}>
+                <Text style={styles.sessionBadgeText}>{getSessionBadgeLabel(nextPassFromPlan.type)}</Text>
+              </View>
+              <Text style={styles.sessionDistance}>{nextPassFromPlan.distance_km != null ? `${nextPassFromPlan.distance_km} km` : '--'}</Text>
+              <Text style={styles.sessionPace}>{[nextPassFromPlan.target_pace_min, nextPassFromPlan.target_pace_max].filter(Boolean).join(' \u2013 ') || '--'}</Text>
+              <Text style={styles.sessionBriefing}>{nextPassFromPlan.coach_notes || nextPassFromPlan.description || 'From your plan.'}</Text>
+            </View>
+          </GlassCard>
+        )}
+
+        {/* Manual wellness (only when watch not connected) */}
+        {readinessState === 'none' && (
+          <GlassCard variant="default" style={styles.manualWellnessCard}>
+            <Text style={styles.manualWellnessTitle}>How you feel</Text>
+            {manualStep === 0 && (
+              <>
+                <Text style={styles.readinessSubtitle}>How was your sleep last night?</Text>
+                <View style={styles.scaleRow}>
+                  {SLEEP_LABELS.map((label, i) => (
+                    <TouchableOpacity
+                      key={label}
+                      style={[styles.scaleBtn, manualWellness.sleep_quality === i && styles.scaleBtnSelected]}
+                      onPress={() => setManualWellness((m) => ({ ...m, sleep_quality: i }))}
+                    >
+                      <Text style={[styles.scaleNumber, manualWellness.sleep_quality === i && styles.scaleNumberSelected]}>{i + 1}</Text>
+                      <Text style={[styles.scaleLabel, manualWellness.sleep_quality === i && styles.scaleLabelSelected]}>{label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+            {manualStep === 1 && (
+              <>
+                <Text style={styles.readinessSubtitle}>How's your energy right now?</Text>
+                <View style={styles.chipRow}>
+                  {['Very low', 'Low', 'Normal', 'High', 'Very high'].map((label, i) => (
+                    <TouchableOpacity
+                      key={label}
+                      style={[styles.chip, manualWellness.energy === i && styles.chipSelected]}
+                      onPress={() => setManualWellness((m) => ({ ...m, energy: i }))}
+                    >
+                      <Text style={[styles.chipText, manualWellness.energy === i && styles.chipTextSelected]}>{label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+            {manualStep === 2 && (
+              <>
+                <Text style={styles.readinessSubtitle}>Any muscle soreness or heaviness?</Text>
+                <View style={styles.chipRow}>
+                  {['Significant', 'Moderate', 'Slight', 'None'].map((label, i) => (
+                    <TouchableOpacity
+                      key={label}
+                      style={[styles.chip, manualWellness.soreness === i && styles.chipSelected]}
+                      onPress={() => setManualWellness((m) => ({ ...m, soreness: i }))}
+                    >
+                      <Text style={[styles.chipText, manualWellness.soreness === i && styles.chipTextSelected]}>{label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+            {manualStep < 2 ? (
+              <PrimaryButton title="Next" onPress={() => setManualStep((s) => s + 1)} style={styles.startBtn} />
+            ) : (
+              <PrimaryButton title="Get my session" onPress={submitManualWellness} style={styles.startBtn} />
+            )}
+          </GlassCard>
+        )}
+
         {/* WHY THIS SESSION */}
-        {(decision?.why_this_session || coachingSummary?.bottleneck) && !isRestDay && (
+        {(decision?.why_this_session || coachingSummary?.bottleneck) && !isRestDay && !showNextPassInMainCard && (
           <GlassCard
             variant="soft"
             onPress={() => { setWhyExpanded((e) => !e); hapticLight(); }}
@@ -749,16 +872,18 @@ export function TodayScreen() {
             </View>
           ))}
         </ScrollView>
-      </ScrollView>
 
-      {/* Floating coach button */}
-      <TouchableOpacity
-        style={styles.coachFab}
-        onPress={() => setCoachChatVisible(true)}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.coachFabText}>AI</Text>
-      </TouchableOpacity>
+        {/* Connect watch — small button at bottom when not connected */}
+        {readinessState === 'none' && (
+          <TouchableOpacity
+            style={styles.connectHealthBottomBtn}
+            onPress={() => { hapticLight(); navigation.navigate('ProfileTab'); }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.connectHealthBottomBtnText}>Connect your fitness</Text>
+          </TouchableOpacity>
+        )}
+      </ScrollView>
 
       {/* Coach chat modal */}
       {coachChatVisible && (
@@ -877,13 +1002,6 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.pill,
   },
   askCoachText: { ...typography.caption, fontWeight: '600', color: colors.accent },
-  coachFab: {
-    position: 'absolute', right: spacing.screenPaddingHorizontal, bottom: 100,
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
-    ...theme.cardShadowElevated,
-  },
-  coachFabText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.5 },
   greeting: { ...typography.largeTitle, color: colors.primaryText, marginBottom: 4 },
   date: { ...typography.secondary, color: colors.secondaryText },
   card: {
@@ -976,6 +1094,15 @@ const styles = StyleSheet.create({
   warningBannerHeadline: { ...typography.headline, color: colors.primaryText, marginBottom: 2 },
   warningBannerSubline: { ...typography.caption, color: colors.secondaryText },
   baselineHint: { ...typography.caption, color: colors.secondaryText, marginBottom: 12 },
+  sleepDiagramWrap: { marginBottom: 12 },
+  sleepDiagramBar: { flexDirection: 'row', height: 24, borderRadius: 8, overflow: 'hidden', backgroundColor: colors.surfaceMuted },
+  sleepDiagramSegment: { height: '100%', minWidth: 2 },
+  sleepDiagramLabel: { ...typography.caption, color: colors.secondaryText, marginTop: 6 },
+  readinessHint: { ...typography.caption, color: colors.secondaryText },
+  connectHealthBottomBtn: { alignSelf: 'center', marginTop: 24, marginBottom: 32, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.glassStroke },
+  connectHealthBottomBtnText: { ...typography.caption, fontWeight: '600', color: colors.secondaryText },
+  manualWellnessCard: { marginBottom: spacing.betweenCards },
+  manualWellnessTitle: { ...typography.headline, color: colors.primaryText, marginBottom: 12 },
   readinessSubtitle: { ...typography.secondary, color: colors.primaryText, marginBottom: 10, fontWeight: '500' },
   coachMessageCard: {
     borderLeftWidth: 3, borderLeftColor: colors.accent,
@@ -986,10 +1113,17 @@ const styles = StyleSheet.create({
   coachMessageBody: { ...typography.body, color: colors.primaryText },
   sessionPill: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginBottom: 8 },
   sessionPillText: { ...typography.caption, fontWeight: '600' },
+  nextWorkoutHeader: { marginBottom: 12 },
+  nextWorkoutLabel: { ...typography.caption, fontWeight: '600', letterSpacing: 0.8, color: colors.secondaryText, marginBottom: 2, textTransform: 'uppercase' },
+  nextWorkoutDate: { ...typography.headline, color: colors.primaryText, marginBottom: 2 },
+  nextWorkoutNotToday: { ...typography.caption, color: colors.secondaryText, opacity: 0.9 },
+  nextWorkoutSubtitle: { ...typography.caption, color: colors.secondaryText, marginTop: 8, marginBottom: 4 },
+  nextWorkoutCard: {},
   originalStrikethrough: { ...typography.caption, color: colors.secondaryText, textDecorationLine: 'line-through', marginBottom: 8 },
   factorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   errorCard: { backgroundColor: '#FFF0EF', padding: 16, borderRadius: theme.radius.card, marginBottom: spacing.betweenCards },
   errorCardText: { ...typography.body, color: colors.destructive, marginBottom: 12 },
+  errorCardBtn: { marginTop: 8 },
   runAnywayLink: { ...typography.caption, color: colors.secondaryText, textAlign: 'center', marginTop: 8 },
   recoveryModalBox: {
     position: 'absolute', bottom: 0, left: 0, right: 0,

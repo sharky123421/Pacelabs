@@ -3,28 +3,28 @@
  * Premium dark theme, Apple × health-app inspired.
  */
 export const colors = {
-  // Premium neutral surfaces
-  background: '#262A31',
-  backgroundSecondary: '#313640',
-  backgroundTertiary: '#3F4551',
-  surfaceBase: '#252A32',
-  surfaceMuted: '#333944',
-  surfaceElevated: '#454D5A',
+  // Premium neutral surfaces (cool blue-grey, no warm grey)
+  background: '#242830',
+  backgroundSecondary: '#2C313C',
+  backgroundTertiary: '#363D4A',
+  surfaceBase: '#242830',
+  surfaceMuted: '#2E3340',
+  surfaceElevated: '#3A4150',
 
   // Cards
-  card: '#353942',
-  cardElevated: '#444954',
+  card: '#2E3340',
+  cardElevated: '#3A4150',
 
-  // Liquid glass materials (high intensity)
-  glassSurface: 'rgba(255,255,255,0.16)',
-  glassSurfaceLight: 'rgba(255,255,255,0.24)',
-  glassFillStrong: 'rgba(255,255,255,0.26)',
-  glassFillSoft: 'rgba(255,255,255,0.14)',
-  glassBorder: 'rgba(255,255,255,0.30)',
-  glassStroke: 'rgba(255,255,255,0.34)',
-  glassHighlight: 'rgba(255,255,255,0.22)',
-  glassHighlightTop: 'rgba(255,255,255,0.34)',
-  glassGlow: 'rgba(255,255,255,0.16)',
+  // Liquid glass materials (more transparent = more glassy)
+  glassSurface: 'rgba(255,255,255,0.08)',
+  glassSurfaceLight: 'rgba(255,255,255,0.14)',
+  glassFillStrong: 'rgba(255,255,255,0.18)',
+  glassFillSoft: 'rgba(255,255,255,0.10)',
+  glassBorder: 'rgba(255,255,255,0.28)',
+  glassStroke: 'rgba(255,255,255,0.38)',
+  glassHighlight: 'rgba(255,255,255,0.18)',
+  glassHighlightTop: 'rgba(255,255,255,0.42)',
+  glassGlow: 'rgba(255,255,255,0.12)',
 
   // Floating dock material (light Apple-style; inactive = gray on light)
   dockFill: 'rgba(255,255,255,0.75)',
@@ -64,7 +64,7 @@ export const colors = {
 
   // UI chrome
   divider: 'rgba(255,255,255,0.14)',
-  tabBar: '#30333A',
+  tabBar: '#2E3340',
   tabBarBorder: 'rgba(255,255,255,0.20)',
 
   // Integrations

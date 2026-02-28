@@ -344,13 +344,18 @@ User just said: "${userMessage}"
 Rules:
 1. Ask exactly ONE follow-up question per turn, or if you have enough information, output the final summary (phase: "summary") and include userAnswers.
 1a. Keep each response concise: at most 1–3 short sentences plus chips where helpful. Avoid repeating information you've already given. Where a yes/no answer makes sense, prefer chips like ["Yes","No"].${hasAnalysis ? '\n1b. Your recommendations MUST be informed by the coaching analysis above. Reference bottlenecks and training philosophy when relevant.' : ''}
-2. For "Which days" question: set "showDatePicker": false and provide chips like ["Mon","Tue",...,"Sun"] so they can multi-select.
-3. For race date: if they want a specific date, set "showDatePicker": true.
-4. When you have: goal, (optional) race date, goal time, days per week, which days, long run day, volume preference, injuries, track access — then output phase "summary" with a friendly recap and set "userAnswers" to an object with keys: goal, raceDate, goalTime, daysPerWeek, trainingDays (array of day names), longRunDay, volumePreference, injuries, trackAccess.
-5. Return ONLY valid JSON: { "message": "...", "chips": [], "showDatePicker": false, "phase": "question"|"summary", "userAnswers": {} when phase is summary }
-6. For summary message, format the recap clearly and end with "Shall I generate your plan?"
-7. If user says they have a specific race date, ask for the date and set showDatePicker: true in the next response.
-8. Do not ask which interval types the athlete prefers, and do not ask what time of day they prefer to train. You will later design the interval and quality session structure yourself based on their goal, level, and volume.`;
+2. For "Which days" question: set "showDatePicker": false, "showGoalTimePicker": false and provide chips like ["Mon","Tue",...,"Sun"] so they can multi-select.
+3. For race date: if they want a specific date, set "showDatePicker": true and "showGoalTimePicker": false.
+4. Goal time: Do NOT ask "Is this your goal race?" or similar. As soon as the user has stated a time-based goal (e.g. marathon, half marathon, 10K), ask directly "What is your goal time?" and set "showGoalTimePicker": true and "showDatePicker": false. The app will show a time wheel picker (hours, minutes, seconds); the user's chosen time will be sent as their next message (e.g. "1:45:30").
+5. When you have: goal, (optional) race date, goal time, days per week, which days, long run day, volume preference, injuries, track access — then output phase "summary" with a friendly recap and set "userAnswers" to an object with keys: goal, raceDate, goalTime, daysPerWeek, trainingDays (array of day names), longRunDay, volumePreference, injuries, trackAccess.
+6. Return ONLY valid JSON: { "message": "...", "chips": [], "showDatePicker": false, "showGoalTimePicker": false, "phase": "question"|"summary", "userAnswers": {} when phase is summary }
+7. For summary message, format the recap clearly and end with "Shall I generate your plan?"
+8. If user says they have a specific race date, ask for the date and set showDatePicker: true in the next response.
+9. Do not ask which interval types the athlete prefers, and do not ask what time of day they prefer to train. You will later design the interval and quality session structure yourself based on their goal, level, and volume.
+10. REMOVE these questions entirely — do NOT ask: (a) "How would you rate your current running experience level?", (b) any follow-up about marathon-specific training or discrepancy between self-rated level and data, (c) "Do you have access to a track for interval training?" — never ask about track access; set trackAccess to "Yes" in userAnswers at summary, (d) "What is your goal for the upcoming training period?" — the goal is already set from the user's first choice (e.g. Marathon, Half marathon).
+11. Never ask "Do you have access to a track for interval training?" or any variant. Skip track entirely; at summary set userAnswers.trackAccess to "Yes".
+12. Do NOT ask any preference or "how important" questions. Assume the most optimal training schedule. Never ask: warm-up routine importance, cooling down or stretching importance, importance of varied terrain, access to a route with varying terrain for long runs, treadmill or flat route for quality workouts, or any "how important is it for you to..." question. You decide what is optimal from the athlete's goal and bottleneck; do not ask the user. Only collect: goal, (optional) race date, goal time, days per week, which days, long run day, volume preference (with "Most optimal" chip), injuries. Then go to summary.
+13. For weekly volume preference: when you ask for volume preference, offer chips that MUST include "Most optimal". Other options can be e.g. "Increase", "Maintain", "Decrease". Explain briefly that "Most optimal" means you will set volume based on their health and training data for their goal.`;
 
   return callGroqPlanBuilder(prompt, true);
 }
@@ -427,6 +432,8 @@ PLAN REQUIREMENTS:
 8. Injury consideration: ${answers.injuries ?? 'None'}.
 9. Only schedule runs on: ${(answers.trainingDays || []).join(', ') || 'flexible'}.
 10. Long run always on: ${answers.longRunDay ?? 'Sunday'}.
+${(answers.volumePreference || '').toLowerCase().includes('most optimal') ? `
+VOLUME "MOST OPTIMAL": The user chose "Most optimal" for weekly volume. You MUST determine the optimal weekly volume (km per week) for THIS athlete from: their current 4-week average (${userData.weeklyVolume} km), ATHLETE DATA above, HEALTH DATA (HRV, sleep, readiness, resting HR), run history summary, injury risk (${userData.injuryRisk}), and their goal (${answers.goal ?? '—'}). Set the plan's target weekly totalKm based on this analysis — e.g. start from current volume and adjust up or down for their goal and recovery capacity. Do not use a generic number; derive it from the data.` : ''}
 
 SESSION TYPES: easy, recovery, tempo, intervals, long, progression, race_pace, hills, rest.
 Pace zones: easy ${userData.easyMin}–${userData.easyMax} /km, threshold ${userData.thresholdPace} /km, recovery ${userData.recoveryPace} /km.

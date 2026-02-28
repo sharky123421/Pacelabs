@@ -43,7 +43,7 @@ const ANALYSIS_STEPS = [
   { key: 'ingest', label: 'Analyzing athlete data...' },
   { key: 'bottleneck', label: 'Detecting training bottlenecks...' },
   { key: 'philosophy', label: 'Selecting training philosophy...' },
-  { key: 'done', label: 'Analysis complete — opening coach chat...' },
+  { key: 'done', label: 'Analysis complete — opening Coach BigBenjamin...' },
 ];
 
 function formatSessionLabel(type) {
@@ -318,7 +318,7 @@ export function PlanScreen({ navigation }) {
           </View>
           <Text style={styles.emptyTitle}>No training plan yet</Text>
           <Text style={styles.emptySubtitle}>
-            We'll analyze your health data, find your strengths and weaknesses, then build a plan together with AI coaching
+            We'll analyze your health data, find your strengths and weaknesses, then build a plan together with Coach BigBenjamin
           </Text>
           <PrimaryButton title="Get started" onPress={startAnalysisAndChat} style={styles.emptyBtn} />
         </View>

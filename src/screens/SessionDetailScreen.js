@@ -67,7 +67,7 @@ export function SessionDetailScreen({ route, navigation }) {
     if (opt.includes('rest day')) {
       handleRestDay();
     } else {
-      Alert.alert('Session adjusted', 'Your coach will apply this change to your plan.');
+      Alert.alert('Session adjusted', 'Coach BigBenjamin will apply this change to your plan.');
     }
   };
 
@@ -93,7 +93,7 @@ export function SessionDetailScreen({ route, navigation }) {
         {/* COACH NOTES */}
         {(session.briefing || session.coach_notes) && (
           <View style={[styles.card, styles.coachCard]}>
-            <Text style={styles.coachTitle}>Coach Notes</Text>
+            <Text style={styles.coachTitle}>Coach BigBenjamin</Text>
             <Text style={styles.coachText}>{session.briefing || session.coach_notes}</Text>
           </View>
         )}

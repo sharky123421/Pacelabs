@@ -2,7 +2,6 @@
  * Strava OAuth: open Strava authorization in browser; callback is handled by Edge Function strava-auth-callback.
  * Supabase URL from process.env. Strava Client ID from src/config/strava.js (edit that file to change it).
  */
-import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
 import { STRAVA_CLIENT_ID } from '../config/strava';
 
@@ -41,6 +40,7 @@ export async function openStravaOAuth(userId) {
   const callbackUrl = `${baseUrl}/functions/v1/strava-auth-callback`;
   const url = `${STRAVA_AUTH_URL}?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(callbackUrl)}&response_type=code&scope=${encodeURIComponent(SCOPES)}&state=${encodeURIComponent(userId)}`;
   try {
+    const WebBrowser = await import('expo-web-browser');
     await WebBrowser.openBrowserAsync(url);
   } catch (e) {
     throw new Error(e?.message ? `Could not open Strava: ${e.message}` : 'Could not open Strava. Try again.');

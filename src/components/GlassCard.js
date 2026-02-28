@@ -7,7 +7,7 @@ import { usePressAnimation } from '../hooks/usePressAnimation';
 export function GlassCard({ children, onPress, style, variant = 'elevated' }) {
   const isPressable = typeof onPress === 'function';
   const { animatedStyle, onPressIn, onPressOut } = usePressAnimation();
-  const blurIntensity = variant === 'soft' ? 56 : variant === 'default' ? 72 : 86;
+  const blurIntensity = variant === 'soft' ? 72 : variant === 'default' ? 88 : 100;
 
   const content = (
     <View style={[styles.glassInner, styles[variant] || styles.elevated]}>
@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
     ...theme.glassShadowDeep,
   },
   fallback: {
-    backgroundColor: 'rgba(255,255,255,0.20)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
 });
 

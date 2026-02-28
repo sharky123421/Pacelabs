@@ -1,6 +1,4 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
-import * as WebBrowser from 'expo-web-browser';
-import * as AuthSession from 'expo-auth-session';
 import { Platform } from 'react-native';
 
 /**
@@ -46,6 +44,7 @@ export async function signInWithApple(signInWithIdToken) {
  */
 export async function signInWithGoogle(signInWithOAuth, setSession) {
   try {
+    const AuthSession = await import('expo-auth-session');
     const redirectUrl = AuthSession.makeRedirectUri({ useProxy: true });
     const { data, error } = await signInWithOAuth({
       provider: 'google',
@@ -53,6 +52,7 @@ export async function signInWithGoogle(signInWithOAuth, setSession) {
     });
     if (error) throw error;
     if (data?.url) {
+      const WebBrowser = await import('expo-web-browser');
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
         redirectUrl

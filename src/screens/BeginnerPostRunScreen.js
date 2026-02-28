@@ -105,7 +105,7 @@ export function BeginnerPostRunScreen({ navigation, route }) {
           <Text style={styles.doneTitle}>Run complete! \ud83c\udf89</Text>
           <View style={styles.encouragementCard}>
             <Text style={styles.encouragementText}>"{encouragement}"</Text>
-            <Text style={styles.encouragementAuthor}>\u2014 Coach</Text>
+            <Text style={styles.encouragementAuthor}>\u2014 Coach BigBenjamin</Text>
           </View>
           <PrimaryButton title="Done" onPress={() => navigation.goBack()} style={styles.doneBtn} />
         </ScrollView>

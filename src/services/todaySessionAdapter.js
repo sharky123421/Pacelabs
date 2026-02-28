@@ -16,6 +16,8 @@ function getTodayISO() {
  * @param {boolean} [options.force_refresh] - Skip cache and re-run AI
  * @returns {Promise<{ decision: object, planned_session: object|null, reasoning: object, recovery_score: number, recovery_status: string, cached: boolean }>}
  */
+const AUTH_401_MESSAGE = 'Servern godkänner inte inloggningen (401). Kontrollera att EXPO_PUBLIC_SUPABASE_URL och EXPO_PUBLIC_SUPABASE_ANON_KEY i .env matchar Supabase-projektet där Edge-funktionen är deployad. Logga sedan ut och in igen.';
+
 export async function fetchTodaySessionDecision({ manual_wellness = null, force_refresh = false } = {}) {
   const { data: { session }, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) throw new Error(sessionError.message || 'Kunde inte hämta session');
@@ -26,17 +28,31 @@ export async function fetchTodaySessionDecision({ manual_wellness = null, force_
     force_refresh: force_refresh || undefined,
   };
 
-  const { data, error } = await supabase.functions.invoke('analyze-today-session', {
-    method: 'POST',
-    body,
-  });
+  let data;
+  let error;
+  let attempt = 0;
+  const maxAttempts = 2;
 
-  if (error) {
-    const status = error.context?.status ?? error.response?.status;
-    const msg = error.message || String(error);
-    if (status === 401 || msg.includes('401') || msg.includes('Unauthorized') || msg.includes('JWT')) {
-      throw new Error('Servern godkänner inte inloggningen (401). Kontrollera att EXPO_PUBLIC_SUPABASE_URL och EXPO_PUBLIC_SUPABASE_ANON_KEY i .env matchar Supabase-projektet där Edge-funktionen är deployad. Logga sedan ut och in igen.');
+  while (attempt < maxAttempts) {
+    const result = await supabase.functions.invoke('analyze-today-session', {
+      method: 'POST',
+      body,
+    });
+    data = result.data;
+    error = result.error;
+    const status = error?.context?.status ?? error?.response?.status;
+    const msg = error?.message || String(error || '');
+    const is401 = status === 401 || msg.includes('401') || msg.includes('Unauthorized') || msg.includes('JWT');
+
+    if (!error) break;
+    if (is401 && attempt === 0) {
+      const { error: refreshErr } = await supabase.auth.refreshSession();
+      if (!refreshErr) {
+        attempt++;
+        continue;
+      }
     }
+    if (is401) throw new Error(AUTH_401_MESSAGE);
     throw new Error(msg);
   }
 

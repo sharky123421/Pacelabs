@@ -105,7 +105,7 @@ export function OnboardingProfileRevealScreen({ route, navigation }) {
 
           <View style={styles.beginnerQuoteCard}>
             <Text style={styles.beginnerQuoteText}>"{BEGINNER_QUOTE}"</Text>
-            <Text style={styles.beginnerQuoteAuthor}>\u2014 Your AI Coach</Text>
+            <Text style={styles.beginnerQuoteAuthor}>\u2014 Coach BigBenjamin</Text>
           </View>
 
           {showButton && (

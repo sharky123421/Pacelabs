@@ -6,25 +6,38 @@ import { ErrorBoundary } from '../components';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, typography } from '../theme';
 
-// Eager: only the two possible initial screens
+// Eager: initial screens + auth screens (so Log In / Sign Up always load)
 import { WelcomeScreen } from '../screens/WelcomeScreen';
 import { MainTabs } from './MainTabs';
+import { SignUpScreen } from '../screens/SignUpScreen';
+import { LogInScreen } from '../screens/LogInScreen';
 
-// Lazy: auth screens (not needed if already logged in)
-const SignUpScreen = React.lazy(() => import('../screens/SignUpScreen').then(m => ({ default: m.SignUpScreen })));
-const LogInScreen = React.lazy(() => import('../screens/LogInScreen').then(m => ({ default: m.LogInScreen })));
+// Lazy load helper: never pass undefined to React.lazy (avoids "promise resolves to undefined" crash)
+function lazyScreen(importFn, exportName) {
+  return React.lazy(() =>
+    importFn().then((m) => ({
+      default: m[exportName] ?? function MissingScreen() {
+        return (
+          <View style={loadingStyles.container}>
+            <Text style={loadingStyles.text}>Screen failed to load</Text>
+          </View>
+        );
+      },
+    }))
+  );
+}
 
 // Lazy: onboarding screens (only needed during first setup)
-const OnboardingPathScreen = React.lazy(() => import('../screens/onboarding/OnboardingPathScreen').then(m => ({ default: m.OnboardingPathScreen })));
-const OnboardingStravaOAuthScreen = React.lazy(() => import('../screens/onboarding/OnboardingStravaOAuthScreen').then(m => ({ default: m.OnboardingStravaOAuthScreen })));
-const OnboardingImportProgressScreen = React.lazy(() => import('../screens/onboarding/OnboardingImportProgressScreen').then(m => ({ default: m.OnboardingImportProgressScreen })));
-const OnboardingQuestionnaireScreen = React.lazy(() => import('../screens/onboarding/OnboardingQuestionnaireScreen').then(m => ({ default: m.OnboardingQuestionnaireScreen })));
-const OnboardingGPXImportScreen = React.lazy(() => import('../screens/onboarding/OnboardingGPXImportScreen').then(m => ({ default: m.OnboardingGPXImportScreen })));
-const OnboardingAIAnalysisScreen = React.lazy(() => import('../screens/onboarding/OnboardingAIAnalysisScreen').then(m => ({ default: m.OnboardingAIAnalysisScreen })));
-const OnboardingProfileRevealScreen = React.lazy(() => import('../screens/onboarding/OnboardingProfileRevealScreen').then(m => ({ default: m.OnboardingProfileRevealScreen })));
-const OnboardingGoalSettingScreen = React.lazy(() => import('../screens/onboarding/OnboardingGoalSettingScreen').then(m => ({ default: m.OnboardingGoalSettingScreen })));
-const OnboardingPlanGenerationScreen = React.lazy(() => import('../screens/onboarding/OnboardingPlanGenerationScreen').then(m => ({ default: m.OnboardingPlanGenerationScreen })));
-const BeginnerPostRunScreen = React.lazy(() => import('../screens/BeginnerPostRunScreen').then(m => ({ default: m.BeginnerPostRunScreen })));
+const OnboardingPathScreen = lazyScreen(() => import('../screens/onboarding/OnboardingPathScreen'), 'OnboardingPathScreen');
+const OnboardingStravaOAuthScreen = lazyScreen(() => import('../screens/onboarding/OnboardingStravaOAuthScreen'), 'OnboardingStravaOAuthScreen');
+const OnboardingImportProgressScreen = lazyScreen(() => import('../screens/onboarding/OnboardingImportProgressScreen'), 'OnboardingImportProgressScreen');
+const OnboardingQuestionnaireScreen = lazyScreen(() => import('../screens/onboarding/OnboardingQuestionnaireScreen'), 'OnboardingQuestionnaireScreen');
+const OnboardingGPXImportScreen = lazyScreen(() => import('../screens/onboarding/OnboardingGPXImportScreen'), 'OnboardingGPXImportScreen');
+const OnboardingAIAnalysisScreen = lazyScreen(() => import('../screens/onboarding/OnboardingAIAnalysisScreen'), 'OnboardingAIAnalysisScreen');
+const OnboardingProfileRevealScreen = lazyScreen(() => import('../screens/onboarding/OnboardingProfileRevealScreen'), 'OnboardingProfileRevealScreen');
+const OnboardingGoalSettingScreen = lazyScreen(() => import('../screens/onboarding/OnboardingGoalSettingScreen'), 'OnboardingGoalSettingScreen');
+const OnboardingPlanGenerationScreen = lazyScreen(() => import('../screens/onboarding/OnboardingPlanGenerationScreen'), 'OnboardingPlanGenerationScreen');
+const BeginnerPostRunScreen = lazyScreen(() => import('../screens/BeginnerPostRunScreen'), 'BeginnerPostRunScreen');
 
 const Stack = createNativeStackNavigator();
 

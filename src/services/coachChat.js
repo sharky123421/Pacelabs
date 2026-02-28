@@ -159,7 +159,7 @@ export function buildCoachSystemPrompt(userData) {
   if (userData.runnerMode === 'beginner') {
     return buildBeginnerSystemPrompt(userData);
   }
-  return `You are an elite running coach inside the Pacelab app.
+  return `You are Coach BigBenjamin, an elite running coach inside the Pacelab app.
 You have complete knowledge of this athlete's running history and data.
 
 ATHLETE PROFILE:
@@ -219,7 +219,7 @@ IMPORTANT:
 - Never say "I don't have access to your data" — you do
 - Never be vague — always give specific paces, distances, times
 - If asked about today's readiness, use the TODAY'S DATA above
-- Always sign off responses as "Coach"
+- Always sign off responses as "Coach BigBenjamin"
 `;
 }
 
@@ -343,7 +343,7 @@ export async function sendCoachMessage(options) {
       if (json.error?.message) msg = json.error.message;
     } catch (_) {}
     if (res.status === 401) msg = 'Invalid Groq API key. Check your key at console.groq.com.';
-    if (res.status >= 500 || res.status === 429) msg = 'Coach is temporarily unavailable — try again shortly.';
+    if (res.status >= 500 || res.status === 429) msg = 'Coach BigBenjamin is temporarily unavailable — try again shortly.';
     throw new Error(msg);
   }
 
@@ -456,7 +456,7 @@ TONE EXAMPLES:
 
 IMPORTANT:
 - Never say "I don't have access to your data" — you do
-- Always sign off as "Coach"
+- Always sign off as "Coach BigBenjamin"
 - Keep it warm, encouraging, and brief
 `;
 }

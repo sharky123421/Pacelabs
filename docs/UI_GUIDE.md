@@ -12,19 +12,8 @@
   - **Hur**: Wrappa innehållet i `<GlassCard style={...}>...</GlassCard>` i stället för en `View` med egen bakgrund/shadow.
   - **Interaktivt kort**: Skicka `onPress` till `GlassCard` för att få press-animation (t.ex. readiness/why this session).
 
-- **GlassButton**
-  - **När**: Sekundära/ikoniska actions som ska kännas mer flytande än klassisk solid CTA.
-  - **Hur**: Använd `<GlassButton title="..." onPress={...} />` för mindre primära actions och behåll `PrimaryButton` för huvud-CTA tills vidare.
-
-- **SegmentControl**
-  - **När**: Byte mellan få lägen (t.ex. dag/vecka, beginner/advanced-filter, flikar inom en skärm).
-  - **Hur**: Skicka `segments=[{label, value}]`, `value` och `onChange(value)`; kontrollera state i föräldern.
-
-- **ScreenBackground / AppScreen**
-  - **När**: Nya skärmar eller när du refaktorerar befintliga layouter.
-  - **Hur**: 
-    - Wrap hela skärmen i `ScreenBackground` eller `AppScreen` för konsekvent dark background och padding.
-    - Lägg rubriker som `header`-prop på `AppScreen` när du vill få en konsekvent topp-layout.
+- **Knappar**
+  - **PrimaryButton** för huvud-CTA, **SecondaryButton** för sekundära actions. Båda använder `usePressAnimation` för press-feedback.
 
 - **Kontrast & dark mode**
   - Text ska alltid ligga på `colors.background*`, `colors.card*` eller `colors.glassSurface*`.

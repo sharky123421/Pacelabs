@@ -13,7 +13,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.benny.runapp",
+      "bundleIdentifier": "com.benny.pacelab",
       "usesAppleSignIn": true
     },
     "android": {
@@ -21,7 +21,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
-      "package": "com.benny.runapp"
+      "package": "com.benny.pacelab"
     },
     "plugins": ["expo-apple-authentication"],
     "web": {

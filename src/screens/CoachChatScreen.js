@@ -270,7 +270,7 @@ export function CoachChatScreen({ visible, onClose, initialMessage }) {
             <Text style={styles.headerClear}>Clear</Text>
           </TouchableOpacity>
           <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>Coach</Text>
+            <Text style={styles.headerTitle}>Coach BigBenjamin</Text>
             <Text style={styles.headerSubtitle}>Powered by AI · Knows your full running history</Text>
           </View>
           <TouchableOpacity onPress={onClose} style={styles.headerBtn} hitSlop={12}>
@@ -307,7 +307,7 @@ export function CoachChatScreen({ visible, onClose, initialMessage }) {
                     <Text style={styles.avatarText}>P</Text>
                   </View>
                   <View style={styles.coachBubble}>
-                    <Text style={styles.coachLabel}>Coach</Text>
+                    <Text style={styles.coachLabel}>BigBenjamin</Text>
                     <Text style={styles.coachBubbleText}>
                       {isBeginner ? WELCOME_MESSAGE_BEGINNER(userData?.name || 'there') : WELCOME_MESSAGE(userData?.name || 'there')}
                     </Text>
@@ -326,7 +326,7 @@ export function CoachChatScreen({ visible, onClose, initialMessage }) {
                     <>
                       {msg.streaming && !msg.content ? (
                         <View style={styles.coachBubbleWrap}>
-                          <Text style={styles.coachLabel}>Coach</Text>
+                          <Text style={styles.coachLabel}>BigBenjamin</Text>
                           <TypingIndicator />
                         </View>
                       ) : msg.error ? (
@@ -338,7 +338,7 @@ export function CoachChatScreen({ visible, onClose, initialMessage }) {
                         </View>
                       ) : (
                         <View style={styles.coachBubbleWrap}>
-                          <Text style={styles.coachLabel}>Coach</Text>
+                          <Text style={styles.coachLabel}>BigBenjamin</Text>
                           <View style={styles.coachBubble}>
                             <Text style={styles.coachBubbleText}>
                               {msg.content}
@@ -386,7 +386,7 @@ export function CoachChatScreen({ visible, onClose, initialMessage }) {
           <TextInput
             ref={inputRef}
             style={styles.input}
-            placeholder="Ask your coach..."
+            placeholder="Ask Coach BigBenjamin..."
             placeholderTextColor={colors.secondaryText}
             value={inputText}
             onChangeText={setInputText}

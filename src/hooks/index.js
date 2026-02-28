@@ -1,3 +1,1 @@
-/**
- * Custom hooks exports
- */
+export { usePressAnimation } from './usePressAnimation';

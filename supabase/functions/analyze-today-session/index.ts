@@ -67,6 +67,39 @@ function avgTSS(runs: { tss?: number | null }[]): number {
 }
 
 const HARD_TYPES = new Set(["tempo", "intervals", "threshold", "long", "progression"]);
+const EASY_ZONE2_TYPES = new Set(["easy", "recovery"]);
+
+function isHardSession(type: string | null | undefined): boolean {
+  return type != null && HARD_TYPES.has(type.toLowerCase());
+}
+
+function isEasyOrZone2(type: string | null | undefined, targetHrZone?: string | null): boolean {
+  if (type == null) return false;
+  const t = type.toLowerCase();
+  if (EASY_ZONE2_TYPES.has(t)) return true;
+  if (targetHrZone != null && /zone\s*2|z2/i.test(String(targetHrZone))) return true;
+  return false;
+}
+
+function getTomorrowISO(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function sessionToRecommended(session: Record<string, unknown>): Record<string, unknown> {
+  return {
+    type: session.type ?? "easy",
+    distance_km: session.distance_km ?? null,
+    structure: session.structure ?? null,
+    target_pace_min: session.target_pace_min ?? null,
+    target_pace_max: session.target_pace_max ?? null,
+    target_hr_zone: session.target_hr_zone ?? null,
+    target_hr_max_bpm: session.target_hr_max_bpm ?? null,
+    estimated_tss: session.estimated_tss ?? null,
+    duration_estimate_min: session.estimated_duration_min ?? null,
+  };
+}
 
 function countHardSessions(runs: { type?: string | null }[], days: number): number {
   return runs.filter((r) => HARD_TYPES.has((r.type || "").toLowerCase())).length;
@@ -653,7 +686,51 @@ Deno.serve(async (req) => {
     }
 
     const context = await buildTodayContext(supabaseService, user.id, manualWellness);
-    const decision = await getAISessionDecision(context);
+    const plannedSessionFromContext = context.planned_session as Record<string, unknown> | null;
+
+    // Swap rule: manual "how you feel" with poor sleep + low energy, today is hard (e.g. intervals), tomorrow is easy/zone2 → recommend tomorrow's session for today
+    let tomorrowSession: Record<string, unknown> | null = null;
+    const lowEnergyPoorSleep =
+      manualWellness != null &&
+      (manualWellness.sleep_quality ?? 5) <= 2 &&
+      (manualWellness.energy ?? 5) <= 2;
+    if (lowEnergyPoorSleep && plannedSessionFromContext != null && isHardSession(plannedSessionFromContext.type as string)) {
+      const tomorrow = getTomorrowISO();
+      const { data: tomorrowRow } = await supabaseService
+        .from("sessions")
+        .select("id, date, type, distance_km, structure, target_pace_min, target_pace_max, target_hr_zone, coach_notes, estimated_tss, estimated_duration_min")
+        .eq("user_id", user.id)
+        .eq("date", tomorrow)
+        .maybeSingle();
+      if (tomorrowRow != null && isEasyOrZone2(tomorrowRow.type as string, tomorrowRow.target_hr_zone as string)) {
+        tomorrowSession = tomorrowRow as Record<string, unknown>;
+      }
+    }
+
+    let decision = await getAISessionDecision(context);
+
+    if (tomorrowSession != null) {
+      const rec = sessionToRecommended(tomorrowSession);
+      decision = {
+        ...decision,
+        decision: {
+          ...(decision.decision as Record<string, unknown>),
+          action: "replace",
+          recommended_session: rec,
+          vs_original: {
+            changed: true,
+            intensity_change: "replaced",
+            volume_change_percent: 0,
+            reason_short: "Swapped with tomorrow's easier session",
+          },
+        },
+        coach_message: {
+          title: "Session swapped",
+          body: "You reported low energy and poor sleep. Today's hard session is swapped with tomorrow's easier one — do the easy/zone 2 session today and save the hard session for when you're recovered.",
+          tone: "encouraging",
+        },
+      } as Record<string, unknown>;
+    }
 
     const recoveryAssessment = (decision.recovery_assessment as Record<string, unknown>) || {};
     const health = (context.health as Record<string, unknown>) || {};
