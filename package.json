@@ -6,7 +6,7 @@
     "node": ">=20.19.0 <21"
   },
   "scripts": {
-    "start": "expo start --dev-client",
+    "start": "expo start --dev-client --scheme com.benny.pacelab",
     "start:go": "CI=false expo start --go",
     "start:go:lan": "bash ./scripts/start-expo-go.sh",
     "start:go:lan:no-watchman": "EXPO_NO_WATCHMAN=1 bash ./scripts/start-expo-go.sh",
@@ -26,6 +26,7 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
+    "@babel/runtime": "^7.28.6",
     "@react-native-async-storage/async-storage": "2.1.2",
     "@react-navigation/bottom-tabs": "^7.0.14",
     "@react-navigation/material-top-tabs": "^7.4.13",

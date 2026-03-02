@@ -2,12 +2,13 @@
   "expo": {
     "name": "Pacelab",
     "slug": "pacelab",
+    "scheme": "com.benny.pacelab",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/pacelab-brand.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/pacelab-brand.png",
       "resizeMode": "contain",
       "backgroundColor": "#FFFFFF"
     },
@@ -18,7 +19,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/pacelab-brand.png",
         "backgroundColor": "#FFFFFF"
       },
       "package": "com.benny.pacelab"

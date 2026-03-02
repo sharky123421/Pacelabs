@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
+import { View, Text, Image, StyleSheet, SafeAreaView } from 'react-native';
 import { PrimaryButton, SecondaryButton } from '../components';
 import { colors, typography, spacing } from '../theme';
 import { APP_NAME } from '../constants';
@@ -8,9 +8,11 @@ export function WelcomeScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <View style={styles.brandMark}>
-          <Text style={styles.brandLetter}>P</Text>
-        </View>
+        <Image
+          source={require('../../assets/pacelab-brand.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
         <Text style={styles.appName}>{APP_NAME}</Text>
         <Text style={styles.tagline}>Run smarter. Stay consistent.</Text>
       </View>
@@ -41,20 +43,10 @@ const styles = StyleSheet.create({
     paddingTop: 80,
     alignItems: 'center',
   },
-  brandMark: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
+  logo: {
+    width: 140,
+    height: 140,
     marginBottom: 24,
-  },
-  brandLetter: {
-    fontSize: 36,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: -1,
   },
   appName: {
     ...typography.largeTitle,

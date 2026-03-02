@@ -43,7 +43,7 @@ supabase db push
 ## 3. Simulator vs riktig enhet
 
 - **iOS Simulator**: HealthKit finns inte. Appen använder **mockdata** så att du kan testa flödet (Today, Profile, Connect Apple Health).
-- **Riktig iPhone**: HealthKit fungerar. Anslut Apple Watch eller använd Hälsa-appen på telefonen för att se riktiga data.
+- **Riktig iPhone**: HealthKit fungerar. I appen: **Profile \u2192 Connections \u2192 Connect Apple Watch**. Det kopplar Apple Health (inkl. all data från din Apple Watch: löpningar, puls, HRV, sömn). Se till att klockan är paread och att Hälsa-appen får data från klockan.
 
 ---
 

@@ -3,6 +3,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   SafeAreaView,
   ScrollView,
@@ -31,12 +32,16 @@ import {
 import { directUploadAndProcess } from '../services/appleHealthExport';
 import { importGpxFiles, importGpxFromXmlStrings } from '../services/gpxImport';
 import { isExpoGo } from '../lib/expoGo';
-import { openStravaOAuth } from '../services/stravaAuth';
-import { supabase, getSupabaseFunctionsUrl } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 const PADDING = spacing.screenPaddingHorizontal;
 
-const GARMIN_CONNECTED = false;
+const CONNECTION_LOGOS = {
+  appleWatch: require('../../assets/connections/apple-watch-logo.png'),
+  garmin: require('../../assets/connections/garmin-logo.png'),
+  coros: require('../../assets/connections/coros-logo.png'),
+  samsung: require('../../assets/connections/samsung-logo.png'),
+};
 
 export function ProfileScreen({ navigation }) {
   const { user, signOut, keepLoggedIn, setKeepLoggedIn } = useAuth();
@@ -77,12 +82,6 @@ export function ProfileScreen({ navigation }) {
   const [appleImportLoading, setAppleImportLoading] = useState(false);
   const [appleImportStatus, setAppleImportStatus] = useState(null);
 
-  const [stravaConnection, setStravaConnection] = useState(null);
-  const [stravaLoading, setStravaLoading] = useState(false);
-  const [stravaSyncLoading, setStravaSyncLoading] = useState(false);
-  const [stravaError, setStravaError] = useState(null);
-  const lastStravaAutoSyncRef = useRef(0);
-  const STRAVA_AUTO_SYNC_INTERVAL_MS = 2 * 60 * 1000;
   const [profileRefreshing, setProfileRefreshing] = useState(false);
 
   const [runStats, setRunStats] = useState({ totalRuns: 0, totalDistanceKm: 0, totalDurationSeconds: 0 });
@@ -112,22 +111,6 @@ export function ProfileScreen({ navigation }) {
       }
     } catch (e) {
       setAppleError(e.message);
-    }
-  }, [userId]);
-
-  const loadStravaConnection = useCallback(async () => {
-    if (!userId) return;
-    setStravaError(null);
-    try {
-      const { data } = await supabase
-        .from('strava_connections')
-        .select('id, last_synced_at, is_active')
-        .eq('user_id', userId)
-        .eq('is_active', true)
-        .maybeSingle();
-      setStravaConnection(data ?? null);
-    } catch (e) {
-      setStravaError(e.message);
     }
   }, [userId]);
 
@@ -172,7 +155,6 @@ export function ProfileScreen({ navigation }) {
   }, [userId]);
 
   useEffect(() => { loadAppleHealth(); }, [loadAppleHealth]);
-  useEffect(() => { loadStravaConnection(); }, [loadStravaConnection]);
   useEffect(() => { loadRunStats(); }, [loadRunStats]);
 
   const handleChangePassword = async () => {
@@ -269,10 +251,10 @@ export function ProfileScreen({ navigation }) {
     try {
       const result = await requestPermissions();
       if (result.error) {
-        if (result.error.includes('denied') || result.error.includes('Permission')) {
+          if (result.error.includes('denied') || result.error.includes('Permission')) {
           Alert.alert(
             'Health access needed',
-            'Pacelab needs permission to read HRV, sleep, and workouts to optimize your training. You can enable it in Settings \u2192 Health \u2192 Data Access.',
+            'Pacelab needs permission to read your Apple Watch runs, HRV, sleep, and heart rate. Enable in Settings \u2192 Health \u2192 Data Access \u2192 Pacelab.',
             [{ text: 'Cancel' }, { text: 'Open Settings', onPress: () => Linking.openSettings() }]
           );
         } else {
@@ -294,7 +276,7 @@ export function ProfileScreen({ navigation }) {
   };
 
   const handleDisconnectAppleHealth = () => {
-    Alert.alert('Disconnect Apple Health', 'Your historical wellness data will be kept. You can reconnect anytime.', [
+    Alert.alert('Disconnect Apple Watch', 'Your synced runs and wellness data will be kept. You can reconnect anytime.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Disconnect', style: 'destructive',
@@ -515,102 +497,10 @@ export function ProfileScreen({ navigation }) {
     }
   };
 
-  const handleConnectStrava = async () => {
-    if (!userId) { setStravaError('You must be signed in to connect Strava.'); return; }
-    setStravaLoading(true);
-    setStravaError(null);
-    try {
-      await openStravaOAuth(userId);
-      await loadStravaConnection();
-    } catch (e) {
-      setStravaError(e?.message || 'Connection failed');
-    } finally {
-      setStravaLoading(false);
-    }
-  };
-
-  const triggerStravaSync = useCallback(
-    async (silent = false) => {
-      if (!userId || !stravaConnection?.is_active) return;
-      if (!silent) setStravaSyncLoading(true);
-      setStravaError(null);
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        let token = session?.access_token;
-        if (!token) {
-          const { data: { session: refreshed } } = await supabase.auth.refreshSession();
-          token = refreshed?.access_token;
-        }
-        if (!token) throw new Error('Not signed in');
-        const functionsUrl = getSupabaseFunctionsUrl();
-        if (!functionsUrl) throw new Error('Supabase URL not configured');
-        const res = await fetch(`${functionsUrl}/strava-sync-manual`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ full_sync: true }),
-        });
-        const text = await res.text();
-        let json = {};
-        try { json = text ? JSON.parse(text) : {}; } catch (_) { }
-        if (!res.ok) {
-          const errMsg = json.error || text || `Sync failed (${res.status})`;
-          if (res.status === 429 || /rate limit/i.test(errMsg)) throw new Error('Strava rate limit \u2013 try again in about 15 min.');
-          throw new Error(errMsg);
-        }
-        const totalActivities = json.totalActivities ?? json.checked ?? 0;
-        const runActivities = json.runActivities ?? json.checked ?? 0;
-        const synced = json.synced ?? 0;
-        if (!silent) Alert.alert('Sync complete', `${totalActivities} activities from Strava. ${runActivities} were runs. ${synced} new runs imported.`);
-        await loadStravaConnection();
-        await new Promise((r) => setTimeout(r, 1200));
-        await loadRunStats();
-      } catch (e) {
-        if (!silent) {
-          const msg = e?.message || 'Sync failed';
-          setStravaError(msg);
-          if (msg.includes('rate limit')) lastStravaAutoSyncRef.current = Date.now() + 14 * 60 * 1000;
-        }
-      } finally {
-        if (!silent) setStravaSyncLoading(false);
-      }
-    },
-    [userId, stravaConnection, loadStravaConnection, loadRunStats]
-  );
-
-  const handleSyncNowStrava = () => triggerStravaSync(false);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!userId || !stravaConnection?.is_active) return;
-      const now = Date.now();
-      if (now - lastStravaAutoSyncRef.current < STRAVA_AUTO_SYNC_INTERVAL_MS) return;
-      lastStravaAutoSyncRef.current = now;
-      triggerStravaSync(true);
-    }, [userId, stravaConnection?.is_active, triggerStravaSync])
-  );
-
   useFocusEffect(useCallback(() => { loadRunStats(); }, [loadRunStats]));
 
-  const handleDisconnectStrava = () => {
-    Alert.alert('Disconnect Strava', 'Your imported runs will be kept. You can reconnect anytime.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Disconnect', style: 'destructive',
-        onPress: async () => {
-          if (!userId) return;
-          try {
-            await supabase.from('strava_connections').update({ is_active: false, access_token: '', refresh_token: '' }).eq('user_id', userId);
-            setStravaConnection(null);
-          } catch (e) { setStravaError(e.message); }
-        },
-      },
-    ]);
-  };
-
-  const stravaConnected = !!stravaConnection?.is_active;
-  const stravaSubtitle = stravaConnected ? `Last synced ${formatLastSynced(stravaConnection?.last_synced_at)}` : 'Import all your runs instantly';
   const appleConnected = !!appleConnection;
-  const appleSubtitle = appleConnected ? `Connected \u00b7 Last synced ${formatLastSynced(appleConnection?.last_synced_at)}` : isExpoGo ? 'Import data from the Health app' : 'Sync from your Apple Watch';
+  const appleSubtitle = appleConnected ? `Connected \u00b7 Last synced ${formatLastSynced(appleConnection?.last_synced_at)}` : isExpoGo ? 'Import data from the Health app' : 'Sync runs and wellness from your Apple Watch';
   const applePreview = appleWellnessToday?.hrv_status ? `HRV ${appleWellnessToday.hrv_last_night ?? '--'}ms \u00b7 ${appleWellnessToday.hrv_status}` : null;
 
   const handleSignOut = () => {
@@ -632,7 +522,7 @@ export function ProfileScreen({ navigation }) {
         refreshControl={
           <RefreshControl
             refreshing={profileRefreshing}
-            onRefresh={async () => { setProfileRefreshing(true); await Promise.all([loadRunStats(), loadStravaConnection(), loadAppleHealth()]); setProfileRefreshing(false); }}
+            onRefresh={async () => { setProfileRefreshing(true); await Promise.all([loadRunStats(), loadAppleHealth()]); setProfileRefreshing(false); }}
             tintColor={colors.linkNeon}
           />
         }
@@ -648,25 +538,9 @@ export function ProfileScreen({ navigation }) {
             </View>
           </View>
         </GlassCard>
-        <View style={styles.statsBentoGrid}>
-          <View style={[styles.bentoBox, styles.bentoBoxFeatured]}>
-            <Text style={styles.bentoValue}>{runStats.totalRuns}</Text>
-            <Text style={styles.bentoLabel}>Total Runs</Text>
-          </View>
-          <View style={styles.bentoColumnItem}>
-            <View style={[styles.bentoBox, styles.bentoBoxSmall]}>
-              <Text style={styles.bentoValueSmall}>{runStats.totalDistanceKm.toLocaleString(undefined, { maximumFractionDigits: 1 })} <Text style={styles.bentoUnit}>km</Text></Text>
-              <Text style={styles.bentoLabel}>Distance</Text>
-            </View>
-            <View style={[styles.bentoBox, styles.bentoBoxSmall]}>
-              <Text style={styles.bentoValueSmall}>{formatTotalTime(runStats.totalDurationSeconds)}</Text>
-              <Text style={styles.bentoLabel}>Time</Text>
-            </View>
-          </View>
-        </View>
-        {runStats.totalRuns === 0 && stravaConnected ? (
+        {runStats.totalRuns === 0 ? (
           <View style={styles.statsHintBlock}>
-            <Text style={styles.statsHint}>Pull down to refresh stats after sync.</Text>
+            <Text style={styles.statsHint}>Pull down to refresh. Connect a device or import runs in Connections.</Text>
             <TouchableOpacity
               style={styles.diagnosticButton}
               onPress={async () => {
@@ -679,7 +553,7 @@ export function ProfileScreen({ navigation }) {
                     const count = raw?.run_count ?? '?';
                     let msg = `User ID: ${uid}\nRuns in database: ${count}`;
                     if (uid === 'null') msg += '\n\nThe app is not sending a valid session. Check .env: EXPO_PUBLIC_SUPABASE_ANON_KEY should be the anon key from Supabase Dashboard.';
-                    else if (count === 0) msg += '\n\nNo runs for this user. Tap Sync now on the Strava row or wait for import.';
+                    else if (count === 0) msg += '\n\nConnect a device or import GPX in Profile \u2192 Connections.';
                     return msg;
                   } catch (e) { return `Error: ${e?.message || e}`; }
                 })();
@@ -691,44 +565,6 @@ export function ProfileScreen({ navigation }) {
           </View>
         ) : null}
 
-        {/* RUNNER STATS */}
-        {!isBeginner && (
-          <>
-            <Text style={styles.sectionTitle}>YOUR STATS</Text>
-            <View style={styles.metricsBentoGrid}>
-              <View style={styles.bentoGridRow}>
-                <View style={[styles.bentoBox, styles.bentoBoxLarge, { flex: 1.2 }]}>
-                  <Text style={styles.bentoValue}>{runStats.totalRuns}</Text>
-                  <Text style={styles.bentoLabel}>Total Runs</Text>
-                </View>
-                <View style={[styles.bentoBox, styles.bentoBoxLarge, { flex: 1.8 }]}>
-                  <Text style={styles.bentoValue}>{runStats.totalDistanceKm.toFixed(0)} <Text style={styles.bentoUnit}>km</Text></Text>
-                  <Text style={styles.bentoLabel}>Distance</Text>
-                </View>
-              </View>
-              <View style={styles.bentoGridRow}>
-                <View style={[styles.bentoBox, styles.bentoBoxMedium]}>
-                  <Text style={styles.bentoValueMedium}>{formatTotalTime(runStats.totalDurationSeconds)}</Text>
-                  <Text style={styles.bentoLabel}>Time</Text>
-                </View>
-                <View style={[styles.bentoBox, styles.bentoBoxMedium]}>
-                  <Text style={styles.bentoValueMedium}>{'\u2014'}</Text>
-                  <Text style={styles.bentoLabel}>Weekly Avg</Text>
-                </View>
-              </View>
-              <Pressable
-                onPress={() => navigation.navigate('AnalyticsTab')}
-                style={({ pressed }) => [
-                  styles.linkRowBento,
-                  { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] }
-                ]}
-              >
-                <Text style={styles.linkText}>View full analytics</Text>
-                <Text style={styles.chevron}>{'\u203a'}</Text>
-              </Pressable>
-            </View>
-          </>
-        )}
         {isBeginner && (
           <>
             <Text style={styles.sectionTitle}>YOUR JOURNEY</Text>
@@ -750,11 +586,12 @@ export function ProfileScreen({ navigation }) {
         )}
 
         {/* CONNECTIONS */}
-        <Text style={styles.sectionTitle}>CONNECTIONS</Text>
-        <GlassCard style={styles.card} variant="default">
-          <ConnectionRow icon="S" iconColor={colors.stravaOrange} title="Strava" connected={stravaConnected} subtitle={stravaSubtitle} connectLabel="Connect Strava" last={false} onConnect={handleConnectStrava} onDisconnect={handleDisconnectStrava} onSync={stravaConnected ? handleSyncNowStrava : undefined} loading={stravaLoading} syncLoading={stravaSyncLoading} error={stravaError} />
-          <ConnectionRow icon="G" iconColor="#000" title="Garmin Connect" connected={GARMIN_CONNECTED} subtitle={GARMIN_CONNECTED ? 'Syncing Body Battery / HRV / Sleep' : 'Sync readiness and wellness data'} connectLabel="Connect Garmin" last={false} />
-          <ConnectionRow icon="AH" iconColor="#000" title="Apple Health" connected={appleConnected} subtitle={appleSubtitle} connectLabel={isExpoGo ? 'Import data' : 'Connect Apple Health'} last onConnect={handleConnectAppleHealth} onDisconnect={handleDisconnectAppleHealth} onSync={appleConnected && isExpoGo ? handleImportAppleHealthExport : undefined} loading={appleLoading} syncLoading={false} preview={applePreview} error={appleError} />
+        <Text style={styles.sectionTitle}>CONNECT</Text>
+        <GlassCard style={styles.connectionsCard} variant="default">
+          <ConnectionRow logo={CONNECTION_LOGOS.appleWatch} title="Apple Watch" connected={appleConnected} subtitle={appleSubtitle} connectLabel={isExpoGo ? 'Import data' : 'Connect'} last={false} onConnect={handleConnectAppleHealth} onDisconnect={handleDisconnectAppleHealth} onSync={appleConnected && isExpoGo ? handleImportAppleHealthExport : undefined} loading={appleLoading} syncLoading={false} preview={applePreview} error={appleError} />
+          <ConnectionRow logo={CONNECTION_LOGOS.garmin} title="Garmin" connected={false} subtitle="Runs & wellness" connectLabel="Connect" last={false} comingSoon />
+          <ConnectionRow logo={CONNECTION_LOGOS.coros} title="Coros" connected={false} subtitle="Runs & training" connectLabel="Connect" last={false} comingSoon />
+          <ConnectionRow logo={CONNECTION_LOGOS.samsung} title="Samsung" connected={false} subtitle="Runs & health" connectLabel="Connect" last comingSoon />
         </GlassCard>
 
         {/* IMPORT DATA */}
@@ -974,26 +811,34 @@ export function ProfileScreen({ navigation }) {
   );
 }
 
-function ConnectionRow({ icon, iconColor, title, connected, subtitle, connectLabel, last, onConnect, onDisconnect, onSync, loading, syncLoading, preview, error }) {
+function ConnectionRow({ logo, title, connected, subtitle, connectLabel, last, onConnect, onDisconnect, onSync, loading, syncLoading, preview, error, comingSoon }) {
+  const muted = comingSoon;
   return (
-    <View style={[styles.connectionRow, last && styles.connectionRowLast]}>
-      <View style={[styles.connectionIcon]}><Text style={[styles.connectionIconText, { color: iconColor || colors.accent }]}>{icon}</Text></View>
+    <View style={[styles.connectionRow, last && styles.connectionRowLast, muted && styles.connectionRowMuted]}>
+      <View style={[styles.connectionIcon, muted && styles.connectionIconMuted]}>
+        {logo ? <Image source={logo} style={styles.connectionLogo} resizeMode="contain" /> : null}
+      </View>
       <View style={styles.connectionText}>
-        <Text style={styles.connectionTitle}>{title}</Text>
-        <View style={styles.connectionStatus}>
-          <View style={[styles.statusDot, { backgroundColor: connected ? colors.success : colors.tertiaryText }]} />
-          <Text style={styles.connectionSubtitle}>{connected ? 'Connected' : 'Not connected'}</Text>
-        </View>
-        {connected && <Text style={styles.syncTime}>{subtitle}</Text>}
-        {connected && preview && <Text style={styles.syncTime}>{preview}</Text>}
-        {!connected && <Text style={styles.connectionHint}>{subtitle}</Text>}
+        <Text style={[styles.connectionTitle, muted && styles.connectionTitleMuted]}>{title}</Text>
+        {!muted && (
+          <View style={styles.connectionStatus}>
+            <View style={[styles.statusDot, { backgroundColor: connected ? colors.success : colors.tertiaryText }]} />
+            <Text style={styles.connectionSubtitle}>{connected ? 'Connected' : 'Not connected'}</Text>
+          </View>
+        )}
+        {muted && <Text style={styles.connectionHint}>{subtitle}</Text>}
+        {connected && !muted && <Text style={styles.syncTime}>{subtitle}</Text>}
+        {connected && !muted && preview && <Text style={styles.syncTime}>{preview}</Text>}
+        {!connected && !muted && <Text style={styles.connectionHint}>{subtitle}</Text>}
         {error && <Text style={styles.connectionError}>{error}</Text>}
       </View>
-      {connected ? (
+      {muted ? (
+        <Text style={styles.comingSoonText}>Coming soon</Text>
+      ) : connected ? (
         <View style={styles.connectionActions}>
           {onSync && (
             <TouchableOpacity onPress={onSync} disabled={syncLoading} style={styles.syncNowBtn}>
-              <Text style={styles.syncNowText}>{syncLoading ? 'Syncing...' : 'Sync now'}</Text>
+              <Text style={styles.syncNowText}>{syncLoading ? 'Syncing...' : 'Sync'}</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity onPress={onDisconnect} disabled={loading}>
@@ -1002,7 +847,7 @@ function ConnectionRow({ icon, iconColor, title, connected, subtitle, connectLab
         </View>
       ) : (
         <TouchableOpacity onPress={onConnect ? () => onConnect() : undefined} disabled={loading}>
-          <Text style={styles.connectBtnText}>{loading ? 'Connecting...' : connectLabel}</Text>
+          <Text style={styles.connectBtnText}>{loading ? '...' : connectLabel}</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -1064,22 +909,27 @@ const styles = StyleSheet.create({
   linkRowBento: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 4 },
   linkText: { ...typography.secondary, color: colors.linkNeon },
   chevron: { ...typography.body, color: colors.tertiaryText, marginLeft: 4 },
-  connectionRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.glassBorder },
+  connectionsCard: { backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card, paddingVertical: 8, paddingHorizontal: 16, marginBottom: 16, borderWidth: 1, borderColor: colors.glassStroke, ...theme.glassShadowSoft },
+  connectionRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.glassBorder },
   connectionRowLast: { borderBottomWidth: 0 },
-  connectionIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 14, borderWidth: 1, borderColor: colors.glassStroke, backgroundColor: colors.surfaceMuted },
-  connectionIconText: { fontSize: 14, fontWeight: '700' },
-  connectionText: { flex: 1 },
-  connectionTitle: { ...typography.body, fontWeight: '600', color: colors.primaryText },
-  connectionStatus: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  connectionRowMuted: { opacity: 0.85 },
+  connectionIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12, borderWidth: 1, borderColor: colors.glassStroke, backgroundColor: colors.surfaceMuted, overflow: 'hidden' },
+  connectionIconMuted: { backgroundColor: colors.surfaceBase },
+  connectionLogo: { width: 28, height: 28 },
+  connectionText: { flex: 1, minWidth: 0 },
+  connectionTitle: { ...typography.body, fontWeight: '600', color: colors.primaryText, fontSize: 16 },
+  connectionTitleMuted: { color: colors.secondaryText },
+  connectionStatus: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
   statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
   connectionSubtitle: { ...typography.caption, color: colors.secondaryText },
   syncTime: { ...typography.caption, color: colors.tertiaryText, marginTop: 2 },
   connectionHint: { ...typography.caption, color: colors.tertiaryText, marginTop: 2 },
-  connectionActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  comingSoonText: { ...typography.caption, color: colors.tertiaryText },
+  connectionActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   syncNowBtn: {},
-  syncNowText: { ...typography.secondary, color: colors.linkNeon },
-  disconnectText: { ...typography.caption, color: colors.destructive },
-  connectBtnText: { ...typography.secondary, color: colors.linkNeon, fontWeight: '600' },
+  syncNowText: { ...typography.secondary, color: colors.linkNeon, fontSize: 14 },
+  disconnectText: { ...typography.caption, color: colors.destructive, fontSize: 14 },
+  connectBtnText: { ...typography.secondary, color: colors.linkNeon, fontWeight: '600', fontSize: 14 },
   connectionError: { ...typography.caption, color: colors.destructive, marginTop: 4 },
   importRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider },
   importTextBlock: { flex: 1 },

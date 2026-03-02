@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   SafeAreaView,
   ScrollView,
@@ -113,6 +114,11 @@ export function LogInScreen({ navigation }) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          <Image
+            source={require('../../assets/pacelab-brand.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
           <Text style={styles.title}>Welcome Back</Text>
           <Input
             label="Email"
@@ -203,8 +209,14 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: spacing.screenPaddingHorizontal,
-    paddingTop: 48,
+    paddingTop: 32,
     paddingBottom: 40,
+  },
+  logo: {
+    width: 100,
+    height: 100,
+    marginBottom: 24,
+    alignSelf: 'center',
   },
   title: {
     ...typography.largeTitle,

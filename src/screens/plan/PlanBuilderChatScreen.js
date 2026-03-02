@@ -202,7 +202,7 @@ export function PlanBuilderChatScreen({ navigation, route }) {
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={PLAN_PURPLE} />
-          <Text style={styles.loadingText}>Preparing Coach BigBenjamin...</Text>
+          <Text style={styles.loadingText}>Preparing Coach Francobanco...</Text>
         </View>
       </SafeAreaView>
     );
@@ -219,7 +219,7 @@ export function PlanBuilderChatScreen({ navigation, route }) {
           <Text style={styles.headerBack}>‹</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Coach BigBenjamin</Text>
+          <Text style={styles.headerTitle}>Coach Francobanco</Text>
           <Text style={styles.headerSubtitle}>Powered by Groq</Text>
         </View>
         <View style={styles.headerBtn} />
@@ -251,7 +251,7 @@ export function PlanBuilderChatScreen({ navigation, route }) {
                   <Text style={styles.avatarText}>P</Text>
                 </View>
                 <View style={styles.planBubble}>
-                  <Text style={styles.planLabel}>Coach BigBenjamin</Text>
+                  <Text style={styles.planLabel}>Coach Francobanco</Text>
                   <Text style={styles.bubbleText}>{msg.content}</Text>
                 </View>
               </View>

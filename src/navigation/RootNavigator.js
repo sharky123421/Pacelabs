@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ActivityIndicator, Image, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ErrorBoundary } from '../components';
@@ -53,7 +53,12 @@ const screenOptions = {
 function LoadingScreen() {
   return (
     <View style={loadingStyles.container}>
-      <ActivityIndicator size="large" color={colors.accent} />
+      <Image
+        source={require('../../assets/pacelab-brand.png')}
+        style={loadingStyles.logo}
+        resizeMode="contain"
+      />
+      <ActivityIndicator size="large" color={colors.accent} style={loadingStyles.spinner} />
       <Text style={loadingStyles.text}>Loading...</Text>
     </View>
   );
@@ -163,6 +168,14 @@ const loadingStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
+  },
+  logo: {
+    width: 160,
+    height: 160,
+    marginBottom: 8,
+  },
+  spinner: {
+    marginVertical: 4,
   },
   text: {
     ...typography.body,

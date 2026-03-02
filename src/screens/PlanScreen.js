@@ -43,7 +43,7 @@ const ANALYSIS_STEPS = [
   { key: 'ingest', label: 'Analyzing athlete data...' },
   { key: 'bottleneck', label: 'Detecting training bottlenecks...' },
   { key: 'philosophy', label: 'Selecting training philosophy...' },
-  { key: 'done', label: 'Analysis complete — opening Coach BigBenjamin...' },
+  { key: 'done', label: 'Analysis complete — opening Coach Francobanco...' },
 ];
 
 function formatSessionLabel(type) {
@@ -155,6 +155,7 @@ export function PlanScreen({ navigation }) {
   const { isBeginner } = useRunnerMode();
   const [plan, setPlan] = useState(null);
   const [sessions, setSessions] = useState([]);
+  const [currentWeek, setCurrentWeek] = useState(1);
   const [loading, setLoading] = useState(true);
   const [adaptation, setAdaptation] = useState(null);
   const [coachingSummary, setCoachingSummary] = useState(null);
@@ -163,6 +164,14 @@ export function PlanScreen({ navigation }) {
   const [analysisStep, setAnalysisStep] = useState(0);
   const [analysisError, setAnalysisError] = useState(null);
 
+  const getWeekStartMonday = (date) => {
+    const d = new Date(date);
+    const day = (d.getDay() + 6) % 7; // 0 = Monday, 6 = Sunday
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - day);
+    return d;
+  };
+
   const loadPlan = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
@@ -170,12 +179,24 @@ export function PlanScreen({ navigation }) {
       const active = await getActivePlan(user.id);
       setPlan(active);
       if (active?.id) {
-        const generatedAt = active.generated_at ? new Date(active.generated_at).getTime() : Date.now();
-        const weeksElapsed = Math.floor((Date.now() - generatedAt) / (7 * 24 * 60 * 60 * 1000));
-        const currentWeek = Math.min(active.total_weeks || 12, 1 + Math.max(0, weeksElapsed));
-        const list = await getPlanSessions(active.id, currentWeek);
-        setSessions(list);
+        const allSessions = await getPlanSessions(active.id, null);
+        if (allSessions.length > 0) {
+          const firstSessionDate = new Date(allSessions[0].date + 'T00:00:00');
+          const today = new Date();
+          const weeksElapsed = Math.floor(
+            (getWeekStartMonday(today).getTime() - getWeekStartMonday(firstSessionDate).getTime()) /
+              (7 * 24 * 60 * 60 * 1000),
+          );
+          const resolvedWeek = Math.min(active.total_weeks || 12, 1 + Math.max(0, weeksElapsed));
+          setCurrentWeek(resolvedWeek);
+          const list = allSessions.filter((s) => s.week_number === resolvedWeek);
+          setSessions(list);
+        } else {
+          setCurrentWeek(1);
+          setSessions([]);
+        }
       } else {
+        setCurrentWeek(1);
         setSessions([]);
       }
     } catch (_) {
@@ -253,13 +274,6 @@ export function PlanScreen({ navigation }) {
   };
 
   // ── Computed values ────────────────────────────────────────────────────────
-  const currentWeek =
-    plan?.generated_at && plan?.total_weeks
-      ? Math.min(
-          plan.total_weeks,
-          1 + Math.max(0, Math.floor((Date.now() - new Date(plan.generated_at).getTime()) / (7 * 24 * 60 * 60 * 1000))),
-        )
-      : 1;
   const weekProgress = plan ? currentWeek / (plan.total_weeks || 12) : 0;
   const daysUntilRace =
     plan?.race_date ? Math.max(0, Math.ceil((new Date(plan.race_date) - new Date()) / 86400000)) : null;
@@ -318,7 +332,7 @@ export function PlanScreen({ navigation }) {
           </View>
           <Text style={styles.emptyTitle}>No training plan yet</Text>
           <Text style={styles.emptySubtitle}>
-            We'll analyze your health data, find your strengths and weaknesses, then build a plan together with Coach BigBenjamin
+            We'll analyze your health data, find your strengths and weaknesses, then build a plan together with Coach Francobanco
           </Text>
           <PrimaryButton title="Get started" onPress={startAnalysisAndChat} style={styles.emptyBtn} />
         </View>

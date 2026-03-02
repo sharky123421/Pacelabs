@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { colors, typography, spacing, theme } from '../theme';
 import { PrimaryButton, SecondaryButton, SkeletonToday, GlassCard } from '../components';
 import { hapticLight } from '../lib/haptics';
@@ -81,13 +81,15 @@ const READINESS_VERDICT_TO_KEY = {
   RED: 'rest',
 };
 
+const DEFAULT_SESSION_BRIEFING = 'Koppla Apple Watch i Profil, eller skapa en träningsplan under Plan.';
+
 const DEFAULT_SESSION = {
   type: 'easy',
   badge: 'DAGENS PASS',
   distance: '--',
   pace: '--',
   hrZone: '--',
-  briefing: 'Add a training plan or sync wellness for a personalized session.',
+  briefing: DEFAULT_SESSION_BRIEFING,
   weather: null,
   completedToday: false,
   completedDistance: null,
@@ -210,7 +212,10 @@ export function TodayScreen() {
   const userId = user?.id;
 
   const loadWellness = useCallback(async () => {
-    if (!userId) return;
+    if (!userId) {
+      setInitialLoadDone(true);
+      return null;
+    }
     try {
       const conn = await getAppleHealthConnection(userId);
       if (!conn) {
@@ -218,10 +223,11 @@ export function TodayScreen() {
         setAppleWellness(null);
         setLastAppleSyncAt(null);
         setInitialLoadDone(true);
-        return;
+        return null;
       }
       setReadinessState('apple');
-      setLastAppleSyncAt(conn.last_synced_at || null);
+      const lastSynced = conn.last_synced_at || null;
+      setLastAppleSyncAt(lastSynced);
       const today = new Date().toISOString().slice(0, 10);
       const { data } = await supabase
         .from('apple_wellness')
@@ -230,22 +236,20 @@ export function TodayScreen() {
         .eq('date', today)
         .maybeSingle();
       setAppleWellness(data || null);
+      setInitialLoadDone(true);
+      return lastSynced;
     } catch (e) {
       setReadinessState('none');
       setAppleWellness(null);
       setLastAppleSyncAt(null);
-    } finally {
       setInitialLoadDone(true);
+      return null;
     }
   }, [userId]);
 
-  useEffect(() => {
-    loadWellness();
-  }, [loadWellness]);
-
-  useEffect(() => {
+  const loadPlanData = useCallback(async () => {
     if (!userId) return;
-    Promise.all([
+    const [b, cs, sessions] = await Promise.all([
       getBaselines().catch(() => null),
       getCoachingSummary().catch(() => null),
       getActivePlan(userId).then(async (plan) => {
@@ -255,12 +259,34 @@ export function TodayScreen() {
         const currentWeek = Math.min(plan.total_weeks || 12, 1 + Math.max(0, weeksElapsed));
         return getPlanSessions(plan.id, currentWeek);
       }).catch(() => []),
-    ]).then(([b, cs, sessions]) => {
-      setBaselines(b);
-      setCoachingSummary(cs);
-      setWeekSessions(sessions);
-    });
+    ]);
+    setBaselines(b);
+    setCoachingSummary(cs);
+    setWeekSessions(sessions);
   }, [userId]);
+
+  useEffect(() => {
+    loadWellness();
+  }, [loadWellness]);
+
+  useEffect(() => {
+    loadPlanData();
+  }, [loadPlanData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      loadPlanData();
+      loadWellness().then((lastSynced) => {
+        if (cancelled || !userId) return;
+        const last = lastSynced ? new Date(lastSynced).getTime() : 0;
+        if (Date.now() - last >= 30 * 60 * 1000) {
+          fullSync(userId).then(() => loadWellness()).catch(() => {});
+        }
+      });
+      return () => { cancelled = true; };
+    }, [userId, loadWellness, loadPlanData])
+  );
 
   useEffect(() => {
     if (!userId || !initialLoadDone) return;
@@ -299,6 +325,7 @@ export function TodayScreen() {
     try {
       await fullSync(userId);
       await loadWellness();
+      await loadPlanData();
       setAiLoading(true);
       fetchTodaySessionDecision({ force_refresh: true })
         .then((res) => { setAiDecision(res.decision); setPlannedSession(res.planned_session ?? null); setAiError(null); })
@@ -307,7 +334,7 @@ export function TodayScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [userId, loadWellness]);
+  }, [userId, loadWellness, loadPlanData]);
 
   const submitManualWellness = useCallback(() => {
     if (manualStep < 2) {
@@ -345,37 +372,54 @@ export function TodayScreen() {
   const warningLevel = warningUi.warning_level || 'none';
   const showWarningBanner = !!warningUi.show_warning;
 
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const todayPlanSession = useMemo(
+    () => (weekSessions || []).find((s) => s.date === todayStr),
+    [weekSessions, todayStr]
+  );
   const nextPassFromPlan = useMemo(() => getNextPassFromPlan(weekSessions), [weekSessions]);
   const nextPassDateLabel = nextPassFromPlan ? formatNextPassDateLabel(nextPassFromPlan.date) : null;
-  const hasSessionToday = recommended && recommended.type !== 'rest';
+  const hasSessionToday = (recommended && recommended.type !== 'rest') || (todayPlanSession && todayPlanSession.type !== 'rest');
   const showNextPassInMainCard = !hasSessionToday && nextPassFromPlan;
-  const showNextPassAsExtraCard = recommended?.type === 'rest' && nextPassFromPlan;
+  const showNextPassAsExtraCard = (recommended?.type === 'rest' || todayPlanSession?.type === 'rest') && nextPassFromPlan;
 
-  const todaySession = showNextPassInMainCard && nextPassFromPlan
+  const todaySession = recommended
     ? {
-        type: nextPassFromPlan.type || 'easy',
-        badge: getSessionBadgeLabel(nextPassFromPlan.type),
-        distance: nextPassFromPlan.distance_km != null ? `${nextPassFromPlan.distance_km} km` : '--',
-        pace: [nextPassFromPlan.target_pace_min, nextPassFromPlan.target_pace_max].filter(Boolean).join(' \u2013 ') || '--',
-        hrZone: nextPassFromPlan.target_hr_zone || (nextPassFromPlan.target_hr_max_bpm ? `Max ${nextPassFromPlan.target_hr_max_bpm} bpm` : '--'),
-        briefing: nextPassFromPlan.coach_notes || nextPassFromPlan.description || 'From your plan.',
+        type: recommended.type || 'easy',
+        badge: getSessionBadgeLabel(recommended.type),
+        distance: recommended.distance_km != null ? `${recommended.distance_km} km` : '--',
+        pace: [recommended.target_pace_min, recommended.target_pace_max].filter(Boolean).join(' \u2013 ') || '--',
+        hrZone: recommended.target_hr_zone || (recommended.target_hr_max_bpm ? `Max ${recommended.target_hr_max_bpm} bpm` : '--'),
+        briefing: coachMessage?.body ?? reasoning?.summary ?? '',
         weather: null,
         completedToday: false,
         completedDistance: null,
       }
-    : recommended
+    : todayPlanSession
       ? {
-          type: recommended.type || 'easy',
-          badge: getSessionBadgeLabel(recommended.type),
-          distance: recommended.distance_km != null ? `${recommended.distance_km} km` : '--',
-          pace: [recommended.target_pace_min, recommended.target_pace_max].filter(Boolean).join(' \u2013 ') || '--',
-          hrZone: recommended.target_hr_zone || (recommended.target_hr_max_bpm ? `Max ${recommended.target_hr_max_bpm} bpm` : '--'),
-          briefing: coachMessage?.body ?? reasoning?.summary ?? '',
+          type: todayPlanSession.type || 'easy',
+          badge: getSessionBadgeLabel(todayPlanSession.type),
+          distance: todayPlanSession.distance_km != null ? `${todayPlanSession.distance_km} km` : '--',
+          pace: [todayPlanSession.target_pace_min, todayPlanSession.target_pace_max].filter(Boolean).join(' \u2013 ') || '--',
+          hrZone: todayPlanSession.target_hr_zone || (todayPlanSession.target_hr_max_bpm ? `Max ${todayPlanSession.target_hr_max_bpm} bpm` : '--'),
+          briefing: todayPlanSession.coach_notes || todayPlanSession.description || 'Från din träningsplan.',
           weather: null,
           completedToday: false,
           completedDistance: null,
         }
-      : DEFAULT_SESSION;
+      : showNextPassInMainCard && nextPassFromPlan
+        ? {
+            type: nextPassFromPlan.type || 'easy',
+            badge: getSessionBadgeLabel(nextPassFromPlan.type),
+            distance: nextPassFromPlan.distance_km != null ? `${nextPassFromPlan.distance_km} km` : '--',
+            pace: [nextPassFromPlan.target_pace_min, nextPassFromPlan.target_pace_max].filter(Boolean).join(' \u2013 ') || '--',
+            hrZone: nextPassFromPlan.target_hr_zone || (nextPassFromPlan.target_hr_max_bpm ? `Max ${nextPassFromPlan.target_hr_max_bpm} bpm` : '--'),
+            briefing: nextPassFromPlan.coach_notes || nextPassFromPlan.description || 'From your plan.',
+            weather: null,
+            completedToday: false,
+            completedDistance: null,
+          }
+        : { ...DEFAULT_SESSION };
   const sessionColor = SESSION_COLORS[todaySession.type] || colors.linkNeon;
   const isRestDay = todaySession.type === 'rest';
   const isCompletedToday = todaySession.completedToday === true;
@@ -411,7 +455,7 @@ export function TodayScreen() {
             style={styles.askCoachBtn}
             onPress={() => setCoachChatVisible(true)}
           >
-            <Text style={styles.askCoachText}>Ask Coach BigBenjamin</Text>
+            <Text style={styles.askCoachText}>Ask Coach Francobanco</Text>
           </TouchableOpacity>
         </View>
 
@@ -513,7 +557,6 @@ export function TodayScreen() {
         </GlassCard>
         )}
 
-        {/* Warning banner */}
         {showWarningBanner && (warningUi.warning_headline || warningUi.warning_subline) && (
           <Pressable
             style={({ pressed }) => [
@@ -550,12 +593,6 @@ export function TodayScreen() {
           ]}
         >
           <View style={styles.sessionContent}>
-            {showNextPassInMainCard && nextPassDateLabel && (
-              <View style={styles.nextWorkoutHeader}>
-                <Text style={styles.nextWorkoutLabel}>Up next</Text>
-                <Text style={styles.nextWorkoutDate}>{nextPassDateLabel}</Text>
-              </View>
-            )}
             {aiDecision && action === 'proceed' && userChoice !== 'declined' && !showNextPassInMainCard && (
               <View style={[styles.sessionPill, { backgroundColor: colors.success + '15' }]}>
                 <Text style={[styles.sessionPillText, { color: colors.success }]}>Good to go</Text>
@@ -569,6 +606,12 @@ export function TodayScreen() {
             {action === 'replace' && !showNextPassInMainCard && (
               <View style={[styles.sessionPill, { backgroundColor: colors.warning + '15' }]}>
                 <Text style={[styles.sessionPillText, { color: colors.warning }]}>Session adapted to recovery</Text>
+              </View>
+            )}
+            {showNextPassInMainCard && nextPassFromPlan && nextPassDateLabel && (
+              <View style={styles.nextPassHeader}>
+                <Text style={styles.nextPassLabel}>Nästa pass</Text>
+                <Text style={styles.nextPassDate}>{nextPassDateLabel}</Text>
               </View>
             )}
             {isRestDay && !showNextPassInMainCard ? (
@@ -628,9 +671,6 @@ export function TodayScreen() {
                     {weatherAdvice ? <Text style={[styles.weatherAdvice, { marginTop: 6 }]}>{weatherAdvice}</Text> : null}
                   </View>
                 )}
-                {showNextPassInMainCard && nextPassDateLabel && (
-                  <Text style={styles.nextWorkoutSubtitle}>This session is scheduled for {nextPassDateLabel}.</Text>
-                )}
                 {userChoice === null && !isRestDay && !showNextPassInMainCard && (
                   <>
                     {action === 'proceed' && (
@@ -688,7 +728,7 @@ export function TodayScreen() {
                           }}
                           style={styles.startBtn}
                         />
-                        <TouchableOpacity onPress={() => Alert.alert('Keep original anyway?', "Coach BigBenjamin recommends against this based on your recovery data.", [{ text: 'Take it easy', style: 'cancel' }, { text: 'Train hard anyway', onPress: async () => { setUserChoice('declined'); await saveUserChoice('declined'); } }])}>
+                        <TouchableOpacity onPress={() => Alert.alert('Keep original anyway?', "Coach Francobanco recommends against this based on your recovery data.", [{ text: 'Take it easy', style: 'cancel' }, { text: 'Train hard anyway', onPress: async () => { setUserChoice('declined'); await saveUserChoice('declined'); } }])}>
                           <Text style={styles.runAnywayLink}>Keep original anyway</Text>
                         </TouchableOpacity>
                       </>
@@ -703,12 +743,12 @@ export function TodayScreen() {
           </View>
         </GlassCard>
 
-        {/* Next workout (extra card when today is rest day) */}
+        {/* Nästa pass (extra card when today is rest day) */}
         {showNextPassAsExtraCard && nextPassFromPlan && nextPassDateLabel && (
           <GlassCard variant="elevated" style={[styles.sessionCard, styles.nextWorkoutCard, { borderLeftColor: SESSION_COLORS[nextPassFromPlan.type] || colors.linkNeon }]}>
             <View style={styles.sessionContent}>
               <View style={styles.nextWorkoutHeader}>
-                <Text style={styles.nextWorkoutLabel}>Up next</Text>
+                <Text style={styles.nextWorkoutLabel}>Nästa pass</Text>
                 <Text style={styles.nextWorkoutDate}>{nextPassDateLabel}</Text>
               </View>
               <View style={styles.sessionBadge}>
@@ -718,6 +758,17 @@ export function TodayScreen() {
               <Text style={styles.sessionPace}>{[nextPassFromPlan.target_pace_min, nextPassFromPlan.target_pace_max].filter(Boolean).join(' \u2013 ') || '--'}</Text>
               <Text style={styles.sessionBriefing}>{nextPassFromPlan.coach_notes || nextPassFromPlan.description || 'From your plan.'}</Text>
             </View>
+          </GlassCard>
+        )}
+
+        {/* Nästa pass (compact when today has a session, so next run is always visible) */}
+        {hasSessionToday && nextPassFromPlan && nextPassDateLabel && !showNextPassAsExtraCard && (
+          <GlassCard variant="soft" style={styles.nextPassCompactCard}>
+            <Text style={styles.nextPassCompactLabel}>Nästa pass</Text>
+            <Text style={styles.nextPassCompactLine}>
+              {nextPassDateLabel} \u00b7 {getSessionBadgeLabel(nextPassFromPlan.type)}
+              {nextPassFromPlan.distance_km != null ? ` \u00b7 ${nextPassFromPlan.distance_km} km` : ''}
+            </Text>
           </GlassCard>
         )}
 
@@ -1113,12 +1164,16 @@ const styles = StyleSheet.create({
   coachMessageBody: { ...typography.body, color: colors.primaryText },
   sessionPill: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginBottom: 8 },
   sessionPillText: { ...typography.caption, fontWeight: '600' },
+  nextPassHeader: { marginBottom: 8 },
+  nextPassLabel: { ...typography.caption, fontWeight: '600', letterSpacing: 0.8, color: colors.secondaryText, textTransform: 'uppercase' },
+  nextPassDate: { ...typography.secondary, color: colors.tertiaryText, marginTop: 2 },
   nextWorkoutHeader: { marginBottom: 12 },
   nextWorkoutLabel: { ...typography.caption, fontWeight: '600', letterSpacing: 0.8, color: colors.secondaryText, marginBottom: 2, textTransform: 'uppercase' },
   nextWorkoutDate: { ...typography.headline, color: colors.primaryText, marginBottom: 2 },
-  nextWorkoutNotToday: { ...typography.caption, color: colors.secondaryText, opacity: 0.9 },
-  nextWorkoutSubtitle: { ...typography.caption, color: colors.secondaryText, marginTop: 8, marginBottom: 4 },
   nextWorkoutCard: {},
+  nextPassCompactCard: { paddingVertical: 12, paddingHorizontal: 16 },
+  nextPassCompactLabel: { ...typography.caption, fontWeight: '600', letterSpacing: 0.8, color: colors.secondaryText, textTransform: 'uppercase', marginBottom: 4 },
+  nextPassCompactLine: { ...typography.body, color: colors.primaryText },
   originalStrikethrough: { ...typography.caption, color: colors.secondaryText, textDecorationLine: 'line-through', marginBottom: 8 },
   factorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   errorCard: { backgroundColor: '#FFF0EF', padding: 16, borderRadius: theme.radius.card, marginBottom: spacing.betweenCards },

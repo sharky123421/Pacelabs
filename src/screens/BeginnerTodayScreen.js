@@ -141,7 +141,7 @@ export function BeginnerTodayScreen() {
             <Text style={styles.dayCounter}>Day {dayNumber} of your journey \ud83c\udfc3</Text>
           </View>
           <TouchableOpacity style={styles.askCoachBtn} onPress={() => setCoachChatVisible(true)}>
-            <Text style={styles.askCoachText}>Ask Coach BigBenjamin</Text>
+            <Text style={styles.askCoachText}>Ask Coach Francobanco</Text>
           </TouchableOpacity>
         </View>
 

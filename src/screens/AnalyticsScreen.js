@@ -59,8 +59,17 @@ export function AnalyticsScreen() {
   const [bottleneckHistory, setBottleneckHistory] = useState([]);
 
   const [stats, setStats] = useState({ totalRuns: 0, totalDistance: 0, totalDuration: 0, longest: 0 });
+  const [allTimeStats, setAllTimeStats] = useState({ totalRuns: 0, totalDistanceKm: 0, totalDurationSeconds: 0 });
   const [recentRuns, setRecentRuns] = useState([]);
   const [weeklyData, setWeeklyData] = useState([]);
+
+  function formatTotalTime(totalSeconds) {
+    if (!totalSeconds || totalSeconds < 0) return '0h';
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    if (h >= 1) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    return m > 0 ? `${m} min` : '0 min';
+  }
 
   const loadData = useCallback(async () => {
     const userId = user?.id;
@@ -99,6 +108,34 @@ export function AnalyticsScreen() {
       });
       setWeeklyData(Object.values(weeks).sort((a, b) => a.key.localeCompare(b.key)).slice(-12));
     } catch (_) { }
+
+    try {
+      const { data: statsData, error: statsErr } = await supabase.rpc('get_my_run_stats');
+      if (!statsErr && statsData != null) {
+        const raw = Array.isArray(statsData) ? statsData[0] : statsData;
+        const s = raw ?? {};
+        setAllTimeStats({
+          totalRuns: Number(s.total_runs) || 0,
+          totalDistanceKm: Number(s.total_distance_km) || 0,
+          totalDurationSeconds: Number(s.total_duration_seconds) || 0,
+        });
+      } else {
+        const { data: allRuns } = await supabase
+          .from('runs')
+          .select('id, distance_meters, duration_seconds')
+          .eq('user_id', userId)
+          .is('deleted_at', null);
+        const list = allRuns ?? [];
+        setAllTimeStats({
+          totalRuns: list.length,
+          totalDistanceKm: list.reduce((sum, r) => sum + (Number(r.distance_meters) || 0), 0) / 1000,
+          totalDurationSeconds: list.reduce((sum, r) => sum + (Number(r.duration_seconds) || 0), 0),
+        });
+      }
+    } catch (_) {
+      setAllTimeStats({ totalRuns: 0, totalDistanceKm: 0, totalDurationSeconds: 0 });
+    }
+
     try {
       const summary = await getCoachingSummary();
       setCoachingSummary(summary);
@@ -165,6 +202,33 @@ export function AnalyticsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.linkNeon} />
         }
       >
+        {/* YOUR STATS — all-time */}
+        <View style={styles.section}>
+          <Text style={SECTION_TITLE}>YOUR STATS</Text>
+          <View style={styles.metricsBentoGrid}>
+            <View style={styles.bentoGridRow}>
+              <View style={[styles.bentoBox, styles.bentoBoxLarge, { flex: 1.2 }]}>
+                <Text style={styles.bentoValue}>{allTimeStats.totalRuns}</Text>
+                <Text style={styles.bentoLabel}>Total Runs</Text>
+              </View>
+              <View style={[styles.bentoBox, styles.bentoBoxLarge, { flex: 1.8 }]}>
+                <Text style={styles.bentoValue}>{allTimeStats.totalDistanceKm.toFixed(0)} <Text style={styles.bentoUnit}>km</Text></Text>
+                <Text style={styles.bentoLabel}>Distance</Text>
+              </View>
+            </View>
+            <View style={styles.bentoGridRow}>
+              <View style={[styles.bentoBox, styles.bentoBoxMedium]}>
+                <Text style={styles.bentoValueMedium}>{formatTotalTime(allTimeStats.totalDurationSeconds)}</Text>
+                <Text style={styles.bentoLabel}>Time</Text>
+              </View>
+              <View style={[styles.bentoBox, styles.bentoBoxMedium]}>
+                <Text style={styles.bentoValueMedium}>{'\u2014'}</Text>
+                <Text style={styles.bentoLabel}>Weekly Avg</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
         {/* RUNNER PROFILE */}
         <View style={styles.section}>
           <GlassCard variant="elevated" style={styles.profileCard}>
@@ -188,7 +252,7 @@ export function AnalyticsScreen() {
         {/* AI COACHING INSIGHTS */}
         {coachingSummary?.bottleneck && (
           <View style={styles.section}>
-            <Text style={SECTION_TITLE}>COACH BIGBENJAMIN INSIGHTS</Text>
+            <Text style={SECTION_TITLE}>COACH FRANCOBANCO INSIGHTS</Text>
             <GlassCard variant="elevated" style={styles.coachingCard}>
               <View style={styles.coachingHeader}>
                 <View style={styles.coachingHeaderText}>
@@ -217,7 +281,7 @@ export function AnalyticsScreen() {
               <Text style={styles.coachingEvidence}>{coachingSummary.bottleneck.evidence}</Text>
               {coachingSummary.philosophy && (
                 <View style={styles.coachingPhilosophy}>
-                  <Text style={styles.coachingPhLabel}>What Coach BigBenjamin is targeting</Text>
+                  <Text style={styles.coachingPhLabel}>What Coach Francobanco is targeting</Text>
                   <Text style={styles.coachingPhValue}>
                     {coachingSummary.philosophy.mode?.replace(/_/g, ' ')?.replace(/\b\w/g, (c) => c.toUpperCase())}
                   </Text>
@@ -362,6 +426,15 @@ const styles = StyleSheet.create({
   rangePillTextActive: { ...typography.secondary, color: colors.primaryText, fontWeight: '700' },
   scroll: { paddingHorizontal: PADDING, paddingBottom: 100 },
   section: { marginBottom: 28 },
+  metricsBentoGrid: { marginBottom: 0 },
+  bentoGridRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  bentoBox: { backgroundColor: colors.surfaceMuted, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: colors.glassStroke, justifyContent: 'center' },
+  bentoBoxLarge: { paddingVertical: 20 },
+  bentoBoxMedium: { flex: 1, paddingVertical: 16 },
+  bentoValue: { ...typography.largeTitle, color: colors.primaryText, marginBottom: 4 },
+  bentoValueMedium: { ...typography.title, color: colors.primaryText, marginBottom: 4 },
+  bentoLabel: { ...typography.caption, color: colors.tertiaryText },
+  bentoUnit: { ...typography.body, color: colors.tertiaryText },
   card: { backgroundColor: colors.glassFillSoft, borderRadius: theme.radius.card, padding: 20, borderWidth: 1, borderColor: colors.glassStroke, ...theme.glassShadowSoft },
   profileCard: { borderLeftWidth: 4, borderLeftColor: colors.accent },
   chartCard: {},

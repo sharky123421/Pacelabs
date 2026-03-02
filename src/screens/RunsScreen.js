@@ -19,7 +19,7 @@ import { colors, typography, spacing, theme } from '../theme';
 import { SecondaryButton, SkeletonRunList, GlassCard } from '../components';
 
 const SESSION_COLORS = { easy: colors.neonGreen, tempo: colors.neonOrange, intervals: colors.neonRed, long: colors.neonCyan, race: colors.neonMagenta };
-const FILTERS = ['All', 'Easy', 'Tempo', 'Intervals', 'Long Run', 'Race', 'This week', 'This month', 'Strava', 'Garmin', 'Apple Watch'];
+const FILTERS = ['All', 'Easy', 'Tempo', 'Intervals', 'Long Run', 'Race', 'This week', 'This month', 'Apple Watch', 'Garmin', 'Coros', 'Samsung'];
 
 const RunCard = memo(function RunCard({ run, onPress, sessionColors }) {
   const sourceBadge = (run.source || 'manual').toUpperCase().replace('_', ' ');
@@ -210,9 +210,10 @@ export function RunsScreen({ navigation }) {
       if (!dateStr.toLowerCase().includes(q) && !dist.includes(q) && !title.includes(q)) return false;
     }
     if (activeFilter === 'All') return true;
-    if (activeFilter === 'Strava') return (run.source || '').toLowerCase() === 'strava';
-    if (activeFilter === 'Garmin') return (run.source || '').toLowerCase() === 'garmin';
     if (activeFilter === 'Apple Watch') return (run.source || '').toLowerCase() === 'apple_watch';
+    if (activeFilter === 'Garmin') return (run.source || '').toLowerCase() === 'garmin';
+    if (activeFilter === 'Coros') return (run.source || '').toLowerCase() === 'coros';
+    if (activeFilter === 'Samsung') return (run.source || '').toLowerCase() === 'samsung';
     const typeMap = { Easy: 'easy', Tempo: 'tempo', Intervals: 'intervals', 'Long Run': 'long', Race: 'race' };
     const wantType = typeMap[activeFilter];
     if (wantType) return deriveRunType(run) === wantType;
@@ -270,8 +271,8 @@ export function RunsScreen({ navigation }) {
             <Text style={styles.emptyLogoText}>P</Text>
           </View>
           <Text style={styles.emptyTitle}>No runs yet</Text>
-          <Text style={styles.emptySubtitle}>Connect Strava or import your Garmin files to see your history. If you just synced, drag down here or open the Runs tab to refresh.</Text>
-          <SecondaryButton title="Connect Strava" onPress={() => navigation.getParent()?.getParent()?.navigate('ProfileTab')} style={styles.emptyBtn} />
+          <Text style={styles.emptySubtitle}>Connect a watch or import GPX to see your runs. Pull down to refresh.</Text>
+          <SecondaryButton title="Go to Profile" onPress={() => navigation.getParent()?.getParent()?.navigate('ProfileTab')} style={styles.emptyBtn} />
           <SecondaryButton title="Refresh runs" onPress={() => loadRuns()} style={styles.emptyBtn} />
           <SecondaryButton title="Import GPX" onPress={() => navigation.getParent()?.getParent()?.navigate('OnboardingGPXImport')} style={styles.emptyBtn} />
         </View>
