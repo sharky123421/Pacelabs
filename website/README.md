@@ -1,23 +1,23 @@
 # Pacelab — Coming Soon
 
-Statisk landningssida. Deploya till Vercel så att den går att nå på nätet.
+Statisk landningssida + Privacy Policy. Eget git-repo – deploya till Vercel direkt från denna mapp.
 
 ## Deploy till Vercel
 
-1. Gå till [vercel.com](https://vercel.com) och logga in (GitHub).
-2. **Add New** → **Project** och importera repo `RunApp` (eller ditt repo).
-3. **Root Directory**: klicka **Edit** och sätt till `website` (välj mappen `website`).
-4. **Framework Preset**: lämna som **Other** (ingen build behövs).
-5. Klicka **Deploy**.
+1. Skapa ett nytt repo på GitHub (t.ex. `pacelab-website`) och koppla detta repo:
+   ```bash
+   git remote add origin https://github.com/DITT-ANVANDARNAMN/pacelab-website.git
+   git push -u origin main
+   ```
+2. Gå till [vercel.com](https://vercel.com) → **Add New** → **Project** → importera **pacelab-website** (eller detta repo).
+3. Lämna **Root Directory** tom (hela repot är webbplatsen).
+4. **Framework Preset**: **Other**. Klicka **Deploy**.
 
-Efter deploy får du en URL typ `pacelab-xxx.vercel.app`. Du kan koppla egen domän under **Settings → Domains**.
+Efter deploy: `https://xxx.vercel.app`. Integritetssidan: `https://xxx.vercel.app/privacy`. Koppla egen domän under **Settings → Domains**.
 
 ## Lokalt
 
-Öppna `index.html` i webbläsare, eller kör:
-
 ```bash
-npx serve website
+npx serve .
 ```
-
-Därefter: http://localhost:3000
+Sedan: http://localhost:3000

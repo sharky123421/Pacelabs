@@ -39,6 +39,7 @@ export function PlanBuilderChatScreen({ navigation, route }) {
   const [selectedDays, setSelectedDays] = useState([]);
   const [phase, setPhase] = useState('question');
   const [userAnswers, setUserAnswers] = useState({});
+  const [rewound, setRewound] = useState(false);
   const [error, setError] = useState(null);
   const scrollRef = useRef(null);
   const [raceDateValue, setRaceDateValue] = useState('');
@@ -136,6 +137,7 @@ export function PlanBuilderChatScreen({ navigation, route }) {
           },
         ]);
         setChips(next.chips || []);
+        setRewound(false);
         setShowDatePicker(!!next.showDatePicker);
         setShowGoalTimePicker(!!next.showGoalTimePicker);
         if (next.phase === 'summary' && next.userAnswers) {
@@ -171,6 +173,27 @@ export function PlanBuilderChatScreen({ navigation, route }) {
     setSelectedDays([]);
   }, [selectedDays, sendReply]);
 
+  const handleEditAnswer = useCallback(
+    (messageId) => {
+      const index = messages.findIndex((m) => m.id === messageId && m.role === 'user');
+      if (index === -1) return;
+
+      const target = messages[index];
+      // Keep everything up to (but not including) this user's answer
+      const nextMessages = messages.slice(0, index);
+
+      setMessages(nextMessages);
+      setInputText(target.content || '');
+      setChips([]);
+      setShowDatePicker(false);
+      setShowGoalTimePicker(false);
+      setPhase('question');
+      setRewound(true);
+      setError(null);
+    },
+    [messages]
+  );
+
   const normalizeGoal = useCallback((raw) => {
     if (!raw || typeof raw !== 'string') return raw;
     const s = raw.trim();
@@ -202,7 +225,7 @@ export function PlanBuilderChatScreen({ navigation, route }) {
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={PLAN_PURPLE} />
-          <Text style={styles.loadingText}>Preparing Coach Francobanco...</Text>
+          <Text style={styles.loadingText}>Preparing your training plan...</Text>
         </View>
       </SafeAreaView>
     );
@@ -219,8 +242,8 @@ export function PlanBuilderChatScreen({ navigation, route }) {
           <Text style={styles.headerBack}>‹</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Coach Francobanco</Text>
-          <Text style={styles.headerSubtitle}>Powered by Groq</Text>
+          <Text style={styles.headerTitle}>Training plan setup</Text>
+          <Text style={styles.headerSubtitle}>Answer a few questions to build your plan</Text>
         </View>
         <View style={styles.headerBtn} />
       </View>
@@ -247,11 +270,8 @@ export function PlanBuilderChatScreen({ navigation, route }) {
           >
             {msg.role === 'assistant' && (
               <View style={styles.planBubbleWrap}>
-                <View style={[styles.avatar, { backgroundColor: PLAN_PURPLE }]}>
-                  <Text style={styles.avatarText}>P</Text>
-                </View>
                 <View style={styles.planBubble}>
-                  <Text style={styles.planLabel}>Coach Francobanco</Text>
+                  <Text style={styles.planLabel}>Plan builder</Text>
                   <Text style={styles.bubbleText}>{msg.content}</Text>
                 </View>
               </View>
@@ -259,8 +279,16 @@ export function PlanBuilderChatScreen({ navigation, route }) {
             {msg.role === 'user' && (
               <View style={styles.userBubbleWrap}>
                 <View style={styles.userBubble}>
+                  <Text style={styles.userBubbleLabel}>Your answer</Text>
                   <Text style={styles.userBubbleText}>{msg.content}</Text>
                 </View>
+                <TouchableOpacity
+                  onPress={() => handleEditAnswer(msg.id)}
+                  style={styles.editAnswerBtn}
+                  hitSlop={8}
+                >
+                  <Text style={styles.editAnswerText}>Ändra svar</Text>
+                </TouchableOpacity>
               </View>
             )}
           </View>
@@ -357,7 +385,7 @@ export function PlanBuilderChatScreen({ navigation, route }) {
         <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <TextInput
             style={styles.input}
-            placeholder="Type your answer..."
+            placeholder={rewound ? 'Update your answer...' : 'Type your answer...'}
             placeholderTextColor={colors.secondaryText}
             value={inputText}
             onChangeText={setInputText}

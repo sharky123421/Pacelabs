@@ -14,15 +14,17 @@
     "start:go:tunnel": "CI=false expo start --go --tunnel",
     "start:go:lan:clear": "CI=false REACT_NATIVE_PACKAGER_HOSTNAME=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null) expo start --go --clear",
     "android": "expo run:android",
-    "ios": "expo run:ios",
+    "ios": "expo run:ios --scheme Pacelab",
     "ios:node": "node -e \"require('@expo/cli')\" run:ios",
     "ios:debug": "EXPO_DEBUG=1 npx expo run:ios 2>&1",
     "web": "expo start --web",
+    "export:web": "expo export --platform web && cp website/privacy.html dist/ && (cp -r website/assets dist/ 2>/dev/null || true)",
     "deploy:strava-callback": "npx supabase functions deploy strava-auth-callback --no-verify-jwt",
     "deploy:strava": "npx supabase functions deploy strava-auth-callback --no-verify-jwt && npx supabase functions deploy strava-import-history && npx supabase functions deploy strava-sync-manual --no-verify-jwt && npx supabase functions deploy strava-refresh-token",
     "deploy:strava-sync": "npx supabase functions deploy strava-sync-manual --no-verify-jwt",
     "deploy:session-adaptation": "npx supabase functions deploy analyze-today-session --no-verify-jwt && npx supabase functions deploy calculate-user-baselines --no-verify-jwt",
     "deploy:apple-health-cloud": "npx supabase functions deploy process-apple-health-export && npx supabase functions deploy upload-health-page --no-verify-jwt",
+    "deploy:intervals": "npx supabase functions deploy intervals-sync-manual --no-verify-jwt",
     "postinstall": "patch-package"
   },
   "dependencies": {
@@ -56,7 +58,10 @@
     "react-native-safe-area-context": "^5.6.0",
     "react-native-screens": "~4.16.0",
     "react-native-url-polyfill": "^2.0.0",
-    "react-native-webview": "^13.16.0"
+    "react-native-webview": "^13.16.0",
+    "react-dom": "19.1.0",
+    "react-native-web": "~0.21.0",
+    "@expo/metro-runtime": "~4.0.0"
   },
   "devDependencies": {
     "@expo/ngrok": "^4.1.0",

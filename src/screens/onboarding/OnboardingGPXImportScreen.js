@@ -7,6 +7,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  Platform,
 } from 'react-native';
 // DocumentPicker, FileSystem, and JSZip are dynamically imported in handlers below
 import { colors, typography, spacing, theme } from '../../theme';
@@ -29,6 +30,10 @@ export function OnboardingGPXImportScreen({ navigation }) {
 
   const handleSelectFiles = async () => {
     if (!user?.id) return;
+    if (Platform.OS === 'web') {
+      Alert.alert('På webben', 'GPX-import finns i Pacelab-appen på din telefon.');
+      return;
+    }
     try {
       const DocumentPicker = await import('expo-document-picker');
       const result = await DocumentPicker.getDocumentAsync({
@@ -55,6 +60,10 @@ export function OnboardingGPXImportScreen({ navigation }) {
 
   const handleSelectZip = async () => {
     if (!user?.id) return;
+    if (Platform.OS === 'web') {
+      Alert.alert('På webben', 'GPX-import finns i Pacelab-appen på din telefon.');
+      return;
+    }
     try {
       const [DocumentPicker, FileSystem, { default: JSZip }] = await Promise.all([
         import('expo-document-picker'),

@@ -1,15 +1,15 @@
-import * as AppleAuthentication from 'expo-apple-authentication';
 import { Platform } from 'react-native';
 
 /**
  * Sign in with Apple (iOS). Uses native Apple ID and Supabase signInWithIdToken.
- * On Android, returns { provider: 'apple', available: false }.
+ * On Android and web, returns { provider: 'apple', available: false }.
  */
 export async function signInWithApple(signInWithIdToken) {
   if (Platform.OS !== 'ios') {
     return { provider: 'apple', available: false };
   }
   try {
+    const AppleAuthentication = await import('expo-apple-authentication');
     const credential = await AppleAuthentication.signInAsync({
       requestedScopes: [
         AppleAuthentication.AppleAuthenticationScope.FULL_NAME,

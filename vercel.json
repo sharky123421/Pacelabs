@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run export:web",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/((?!_expo|assets|.*\\.(js|css|ico|png|svg|woff2?|json|html)).*)", "destination": "/index.html" }
+  ],
+  "cleanUrls": true
+}

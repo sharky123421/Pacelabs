@@ -36,7 +36,10 @@ function normalizeRow(row) {
   };
 }
 
-// Limit to a continuous window of up to 60 days (or less if dataset shorter)
+// Limit to a continuous window of up to maxDays (default 60).
+// If the bundled dataset is shorter (e.g. 10 rows), we synthesize
+// additional days by repeating the pattern and shifting the dates
+// so the app always gets a full window for demo mode.
 export function getUltraSimulationWindow(maxDays = 60, sourceArray = null) {
   const raw = sourceArray ?? (Array.isArray(ultraSimulationDataset) ? ultraSimulationDataset : []);
   const rows = raw.map(normalizeRow);
@@ -44,7 +47,41 @@ export function getUltraSimulationWindow(maxDays = 60, sourceArray = null) {
     .map((r) => ({ ...r, _date: toDateString(r.date) }))
     .filter((r) => r._date)
     .sort((a, b) => (a._date < b._date ? -1 : a._date > b._date ? 1 : 0));
-  return sorted.slice(0, maxDays);
+
+  if (sorted.length === 0) return [];
+  if (sorted.length >= maxDays) return sorted.slice(0, maxDays);
+
+  const extended = [];
+  const startDate = new Date(sorted[0]._date);
+
+  for (let i = 0; i < maxDays; i += 1) {
+    const pattern = sorted[i % sorted.length];
+    const date = new Date(startDate);
+    date.setDate(startDate.getDate() + i);
+    const dateStr = toDateString(date);
+
+    const sessionTypeRaw = pattern.sessionType || 'Easy';
+    const sessionType =
+      typeof sessionTypeRaw === 'string' &&
+      sessionTypeRaw.toLowerCase() !== 'rest' &&
+      sessionTypeRaw.toLowerCase() !== 'off'
+        ? sessionTypeRaw
+        : 'Easy';
+
+    const distanceKm = Number(pattern.distanceKm || 0) > 0 ? Number(pattern.distanceKm) : 8;
+    const durationMin = Number(pattern.durationMin || 0) > 0 ? Number(pattern.durationMin) : 45;
+
+    extended.push({
+      ...pattern,
+      sessionType,
+      distanceKm,
+      durationMin,
+      date: dateStr,
+      _date: dateStr,
+    });
+  }
+
+  return extended;
 }
 
 export function buildWellnessRowsFromDataset(userId, datasetRows, calculateAppleReadiness) {

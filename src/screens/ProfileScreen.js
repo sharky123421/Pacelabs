@@ -16,6 +16,7 @@ import {
   Linking,
   RefreshControl,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { useRunnerMode } from '../contexts/RunnerModeContext';
@@ -33,6 +34,7 @@ import { directUploadAndProcess } from '../services/appleHealthExport';
 import { importGpxFiles, importGpxFromXmlStrings } from '../services/gpxImport';
 import { isExpoGo } from '../lib/expoGo';
 import { supabase } from '../lib/supabase';
+import { saveIntervalsConnection, getIntervalsConnection, disconnectIntervals, syncIntervalsNow } from '../services/intervalsIcu';
 
 const PADDING = spacing.screenPaddingHorizontal;
 
@@ -88,6 +90,15 @@ export function ProfileScreen({ navigation }) {
   const [gpxImportLoading, setGpxImportLoading] = useState(false);
   const [gpxImportStatus, setGpxImportStatus] = useState(null);
   const [sampleDataLoading, setSampleDataLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+
+  const [intervalsConnection, setIntervalsConnection] = useState(null);
+  const [intervalsLoading, setIntervalsLoading] = useState(false);
+  const [intervalsSyncLoading, setIntervalsSyncLoading] = useState(false);
+  const [intervalsError, setIntervalsError] = useState(null);
+  const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
+  const [intervalsAthleteId, setIntervalsAthleteId] = useState('');
+  const [intervalsApiKey, setIntervalsApiKey] = useState('');
 
   const userId = user?.id;
 
@@ -111,6 +122,20 @@ export function ProfileScreen({ navigation }) {
       }
     } catch (e) {
       setAppleError(e.message);
+    }
+  }, [userId]);
+
+  const loadIntervals = useCallback(async () => {
+    if (!userId) return;
+    setIntervalsError(null);
+    try {
+      const conn = await getIntervalsConnection();
+      setIntervalsConnection(conn || null);
+      if (conn?.athlete_id) {
+        setIntervalsAthleteId(String(conn.athlete_id));
+      }
+    } catch (e) {
+      setIntervalsError(e.message);
     }
   }, [userId]);
 
@@ -156,6 +181,7 @@ export function ProfileScreen({ navigation }) {
 
   useEffect(() => { loadAppleHealth(); }, [loadAppleHealth]);
   useEffect(() => { loadRunStats(); }, [loadRunStats]);
+  useEffect(() => { loadIntervals(); }, [loadIntervals]);
 
   const handleChangePassword = async () => {
     setPasswordError('');
@@ -210,6 +236,10 @@ export function ProfileScreen({ navigation }) {
 
   const handleImportAppleHealthExport = async () => {
     if (!userId) return;
+    if (Platform.OS === 'web') {
+      Alert.alert('På webben', 'Importera Apple Health-export i Pacelab-appen på din iPhone.');
+      return;
+    }
     setAppleError(null);
     try {
       const DocumentPicker = await import('expo-document-picker');
@@ -237,6 +267,83 @@ export function ProfileScreen({ navigation }) {
     } finally {
       setAppleImportLoading(false);
       setAppleImportStatus(null);
+    }
+  };
+
+  const handleConnectIntervals = async () => {
+    if (!userId) return;
+    setIntervalsError(null);
+    setIntervalsModalVisible(true);
+  };
+
+  const handleSaveIntervals = async () => {
+    setIntervalsError(null);
+    if (!intervalsAthleteId.trim() || !intervalsApiKey.trim()) {
+      setIntervalsError('Enter your Intervals.icu athlete ID and API key.');
+      return;
+    }
+    setIntervalsLoading(true);
+    try {
+      await saveIntervalsConnection({
+        athleteId: intervalsAthleteId.trim(),
+        apiKey: intervalsApiKey.trim(),
+      });
+      await loadIntervals();
+      setIntervalsModalVisible(false);
+      Alert.alert('Intervals.icu connected', 'Your Intervals.icu account is now linked. You can import your runs anytime.');
+    } catch (e) {
+      setIntervalsError(e.message || 'Could not save Intervals.icu connection.');
+    } finally {
+      setIntervalsLoading(false);
+    }
+  };
+
+  const handleDisconnectIntervals = () => {
+    if (!userId) return;
+    Alert.alert(
+      'Disconnect Intervals.icu',
+      'Your imported runs will be kept. You can reconnect anytime.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Disconnect',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIntervalsLoading(true);
+              await disconnectIntervals();
+              setIntervalsConnection(null);
+            } catch (e) {
+              setIntervalsError(e.message || 'Could not disconnect Intervals.icu.');
+            } finally {
+              setIntervalsLoading(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleSyncIntervals = async () => {
+    if (!userId) return;
+    setIntervalsError(null);
+    setIntervalsSyncLoading(true);
+    try {
+      const result = await syncIntervalsNow();
+      await loadRunStats();
+      if (result?.imported != null) {
+        Alert.alert(
+          'Intervals.icu sync complete',
+          `${result.imported} runs imported, ${result.skipped ?? 0} skipped.`,
+        );
+      } else {
+        Alert.alert('Intervals.icu sync complete', 'Sync finished.');
+      }
+      await loadIntervals();
+    } catch (e) {
+      setIntervalsError(e.message || 'Intervals.icu sync failed.');
+    } finally {
+      setIntervalsSyncLoading(false);
     }
   };
 
@@ -333,29 +440,7 @@ export function ProfileScreen({ navigation }) {
     if (!userId) return;
     setSampleDataLoading(true);
     try {
-      const [DocumentPicker, FileSystem] = await Promise.all([
-        import('expo-document-picker'),
-        import('expo-file-system/legacy'),
-      ]);
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['text/csv', 'application/json'],
-        copyToCacheDirectory: true,
-        multiple: false,
-      });
-      let overrideDataset = null;
-      if (!result.canceled && result.assets?.[0]) {
-        const asset = result.assets[0];
-        const uri = asset.uri;
-        const name = (asset.name || '').toLowerCase();
-        const content = await FileSystem.readAsStringAsync(uri, { encoding: 'utf8' });
-        if (name.endsWith('.json')) {
-          const parsed = JSON.parse(content);
-          overrideDataset = Array.isArray(parsed) ? parsed : [parsed];
-        } else if (name.endsWith('.csv')) {
-          overrideDataset = parseCsvToRows(content);
-        }
-      }
-      const { wellnessDays, runsInserted } = await fillSampleData(userId, overrideDataset ?? undefined);
+      const { wellnessDays, runsInserted } = await fillSampleData(userId);
       await Promise.all([loadRunStats(), loadAppleHealth()]);
       Alert.alert('Exempeldata inlagd', `${wellnessDays} dagars hälsodata och ${runsInserted} löpningar lades till.`);
     } catch (e) {
@@ -367,6 +452,10 @@ export function ProfileScreen({ navigation }) {
 
   const handleImportGpx = async () => {
     if (!userId) return;
+    if (Platform.OS === 'web') {
+      Alert.alert('På webben', 'GPX-import finns i Pacelab-appen på din telefon.');
+      return;
+    }
     try {
       const [DocumentPicker, FileSystem, { default: JSZip }] = await Promise.all([
         import('expo-document-picker'),
@@ -502,6 +591,39 @@ export function ProfileScreen({ navigation }) {
   const appleConnected = !!appleConnection;
   const appleSubtitle = appleConnected ? `Connected \u00b7 Last synced ${formatLastSynced(appleConnection?.last_synced_at)}` : isExpoGo ? 'Import data from the Health app' : 'Sync runs and wellness from your Apple Watch';
   const applePreview = appleWellnessToday?.hrv_status ? `HRV ${appleWellnessToday.hrv_last_night ?? '--'}ms \u00b7 ${appleWellnessToday.hrv_status}` : null;
+  const intervalsConnected = !!intervalsConnection;
+  const intervalsSubtitle = intervalsConnected
+    ? `Connected \u00b7 Last synced ${formatLastSynced(intervalsConnection?.last_synced_at)}`
+    : 'Import completed runs from Intervals.icu';
+
+  const handleResetData = () => {
+    if (!userId) return;
+    Alert.alert(
+      'Reset all data',
+      'This will permanently delete all your Pacelab runs, wellness data, training plans, coach chat history, and device connections for this account. Your login stays active, but this cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete everything',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setResetLoading(true);
+              const { data, error } = await supabase.rpc('reset_my_data');
+              if (error) throw new Error(error.message || 'Kunde inte nollställa data.');
+              await Promise.all([loadRunStats(), loadAppleHealth()]);
+              const runs = data?.deleted_runs ?? 0;
+              Alert.alert('Data nollställd', `All din Pacelab-data har raderats (${runs} löpningar borttagna). Du kan börja om från början.`);
+            } catch (e) {
+              Alert.alert('Kunde inte nollställa data', e?.message || 'Något gick fel. Försök igen.');
+            } finally {
+              setResetLoading(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const handleSignOut = () => {
     Alert.alert('Sign out', 'Are you sure you want to sign out?', [
@@ -588,7 +710,36 @@ export function ProfileScreen({ navigation }) {
         {/* CONNECTIONS */}
         <Text style={styles.sectionTitle}>CONNECT</Text>
         <GlassCard style={styles.connectionsCard} variant="default">
-          <ConnectionRow logo={CONNECTION_LOGOS.appleWatch} title="Apple Watch" connected={appleConnected} subtitle={appleSubtitle} connectLabel={isExpoGo ? 'Import data' : 'Connect'} last={false} onConnect={handleConnectAppleHealth} onDisconnect={handleDisconnectAppleHealth} onSync={appleConnected && isExpoGo ? handleImportAppleHealthExport : undefined} loading={appleLoading} syncLoading={false} preview={applePreview} error={appleError} />
+          <ConnectionRow
+            logo={CONNECTION_LOGOS.appleWatch}
+            title="Apple Watch"
+            connected={appleConnected}
+            subtitle={appleSubtitle}
+            connectLabel={isExpoGo ? 'Import data' : 'Connect'}
+            last={false}
+            onConnect={handleConnectAppleHealth}
+            onDisconnect={handleDisconnectAppleHealth}
+            onSync={appleConnected && isExpoGo ? handleImportAppleHealthExport : undefined}
+            loading={appleLoading}
+            syncLoading={false}
+            preview={applePreview}
+            error={appleError}
+          />
+          <ConnectionRow
+            logo={null}
+            title="Intervals.icu"
+            connected={intervalsConnected}
+            subtitle={intervalsSubtitle}
+            connectLabel="Connect"
+            last={false}
+            onConnect={handleConnectIntervals}
+            onDisconnect={handleDisconnectIntervals}
+            onSync={intervalsConnected ? handleSyncIntervals : undefined}
+            loading={intervalsLoading}
+            syncLoading={intervalsSyncLoading}
+            preview={null}
+            error={intervalsError}
+          />
           <ConnectionRow logo={CONNECTION_LOGOS.garmin} title="Garmin" connected={false} subtitle="Runs & wellness" connectLabel="Connect" last={false} comingSoon />
           <ConnectionRow logo={CONNECTION_LOGOS.coros} title="Coros" connected={false} subtitle="Runs & training" connectLabel="Connect" last={false} comingSoon />
           <ConnectionRow logo={CONNECTION_LOGOS.samsung} title="Samsung" connected={false} subtitle="Runs & health" connectLabel="Connect" last comingSoon />
@@ -621,7 +772,7 @@ export function ProfileScreen({ navigation }) {
           <TouchableOpacity style={[styles.importRow, { borderBottomWidth: 0 }]} onPress={handleFillSampleData} disabled={sampleDataLoading}>
             <View style={styles.importTextBlock}>
               <Text style={styles.importTitle}>Fyll med exempeldata</Text>
-              <Text style={styles.importSubtitle}>Lägg in 14 dagars hälsodata och 20 exempel-löpningar för demo</Text>
+              <Text style={styles.importSubtitle}>Lägg in 60 simulerade löppass och wellness med ett tryck</Text>
             </View>
             <Text style={styles.chevron}>{'\u203a'}</Text>
           </TouchableOpacity>
@@ -705,6 +856,10 @@ export function ProfileScreen({ navigation }) {
           <TouchableOpacity style={styles.prefRow} onPress={() => Linking.openURL('https://pacelab.app/privacy')}><Text style={styles.prefRowText}>Privacy Policy</Text><Text style={styles.chevron}>{'\u203a'}</Text></TouchableOpacity>
           <TouchableOpacity style={styles.prefRow} onPress={() => Linking.openURL('https://pacelab.app/terms')}><Text style={styles.prefRowText}>Terms of Service</Text><Text style={styles.chevron}>{'\u203a'}</Text></TouchableOpacity>
           <TouchableOpacity style={styles.prefRow} onPress={() => Linking.openURL('mailto:support@pacelab.app')}><Text style={styles.prefRowText}>Help & Support</Text><Text style={styles.chevron}>{'\u203a'}</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.prefRow} onPress={handleResetData}>
+            <Text style={[styles.prefRowText, { color: colors.destructive }]}>Reset all data</Text>
+            <Text style={[styles.chevron, { color: colors.destructive }]}>{'\u203a'}</Text>
+          </TouchableOpacity>
         </GlassCard>
 
         <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
@@ -797,12 +952,47 @@ export function ProfileScreen({ navigation }) {
         </Pressable>
       </Modal>
 
+      {/* Intervals.icu modal */}
+      <Modal visible={intervalsModalVisible} transparent animationType="slide">
+        <Pressable style={styles.modalOverlayBottom} onPress={() => setIntervalsModalVisible(false)}>
+          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Connect Intervals.icu</Text>
+            <Text style={styles.connectionHint}>
+              Enter your Intervals.icu athlete ID and API key from Settings → API on intervals.icu. Pacelab will use this to read your completed runs.
+            </Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Athlete ID"
+              placeholderTextColor={colors.tertiaryText}
+              keyboardType="number-pad"
+              value={intervalsAthleteId}
+              onChangeText={setIntervalsAthleteId}
+            />
+            <TextInput
+              style={styles.textInput}
+              placeholder="API key"
+              placeholderTextColor={colors.tertiaryText}
+              value={intervalsApiKey}
+              onChangeText={setIntervalsApiKey}
+              secureTextEntry
+              autoCapitalize="none"
+            />
+            {intervalsError ? <Text style={styles.connectionError}>{intervalsError}</Text> : null}
+            <PrimaryButton title="Save connection" onPress={handleSaveIntervals} loading={intervalsLoading} style={styles.modalBtn} />
+            <SecondaryButton title="Cancel" onPress={() => setIntervalsModalVisible(false)} />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {
-        (appleImportLoading || gpxImportLoading) && (
+        (appleImportLoading || gpxImportLoading || resetLoading || sampleDataLoading || intervalsSyncLoading) && (
           <View style={styles.importOverlay}>
             <View style={styles.importOverlayCard}>
               <ActivityIndicator size="large" color={colors.accent} />
-              <Text style={styles.importOverlayText}>{appleImportStatus || gpxImportStatus || 'Processing...'}</Text>
+              <Text style={styles.importOverlayText}>
+                {resetLoading ? 'Resetting your data...' : (appleImportStatus || gpxImportStatus || (intervalsSyncLoading ? 'Syncing Intervals.icu…' : 'Processing...'))}
+              </Text>
             </View>
           </View>
         )
